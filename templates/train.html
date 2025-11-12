@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Train Gestures - Hand Sign Detector</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            color: #3b82f6;
+            margin-bottom: 10px;
+        }
+
+        .nav {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .nav a, .logout-btn {
+            padding: 10px 20px;
+            background: #334155;
+            color: #e2e8f0;
+            text-decoration: none;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.3s;
+        }
+
+        .nav a:hover, .logout-btn:hover {
+            background: #475569;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+
+        .section {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .section h2 {
+            color: #3b82f6;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+
+        #canvas-container {
+            position: relative;
+            width: 100%;
+            background: #0f172a;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        #canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        #video {
+            display: none;
+        }
+
+        .status-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            background: #ef4444;
+            color: white;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .status-badge.active {
+            background: #10b981;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .btn-secondary {
+            background: #64748b;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #475569;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            color: #e2e8f0;
+            font-size: 1rem;
+        }
+
+        .dataset-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #0f172a;
+            border-radius: 6px;
+            padding: 15px;
+        }
+
+        .dataset-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #1e293b;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+
+        .dataset-item .label {
+            font-weight: 600;
+            color: #3b82f6;
+        }
+
+        .dataset-item .count {
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+
+        .alert {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .alert.success {
+            background: #10b981;
+            color: white;
+        }
+
+        .alert.error {
+            background: #ef4444;
+            color: white;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .stat-box {
+            background: #0f172a;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-box .value {
+            font-size: 2rem;
+            color: #3b82f6;
+            font-weight: bold;
+        }
+
+        .stat-box .label {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            margin-top: 5px;
+        }
+
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✋ Train Hand Gestures</h1>
+        <p>Record labeled gesture samples for recognition</p>
+    </div>
+
+    <div class="nav">
+        <a href="/menu">← Back to Menu</a>
+        <a href="/detect">Detect Mode</a>
+        <form action="/logout" method="post" style="display: inline;">
+            <button type="submit" class="logout-btn">Logout</button>
+        </form>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="container">
+        <div class="section">
+            <h2>Camera Feed</h2>
+            <div id="canvas-container">
+                <video id="video" width="640" height="480"></video>
+                <canvas id="canvas" width="640" height="480"></canvas>
+                <div id="status-badge" class="status-badge">Camera Off</div>
+            </div>
+            <div class="controls">
+                <button id="start-btn" class="btn btn-primary" onclick="startCamera()">Start Camera</button>
+                <button id="stop-btn" class="btn btn-danger" onclick="stopCamera()" style="display: none;">Stop Camera</button>
+            </div>
+        </div>
+
+        <div>
+            <div class="section">
+                <h2>Record Gesture</h2>
+                <div class="input-group">
+                    <label for="gesture-label">Gesture Name</label>
+                    <input type="text" id="gesture-label" placeholder="e.g., thumbs-up, peace, ok">
+                </div>
+                <div class="controls">
+                    <button class="btn btn-success" onclick="recordSample()">Record Sample</button>
+                    <button class="btn btn-success" onclick="recordMultiple()">Record Multiple (x5)</button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Dataset</h2>
+                <div class="stats">
+                    <div class="stat-box">
+                        <div class="value" id="total-gestures">0</div>
+                        <div class="label">Gestures</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="value" id="total-samples">0</div>
+                        <div class="label">Samples</div>
+                    </div>
+                </div>
+                <div class="dataset-list" id="dataset-list">
+                    <p style="color: #64748b; text-align: center;">No gestures recorded yet</p>
+                </div>
+                <div class="controls" style="margin-top: 15px;">
+                    <button class="btn btn-secondary" onclick="exportDataset()">📥 Export</button>
+                    <button class="btn btn-secondary" onclick="importDataset()">📤 Import</button>
+                    <button class="btn btn-danger" onclick="clearDataset()">🗑️ Clear</button>
+                </div>
+                <input type="file" id="import-file" accept=".json" style="display: none;" onchange="handleImport(event)">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const username = "{{ username }}";
+        const STORAGE_KEY = `handsign_dataset_${username}`;
+        
+        let camera = null;
+        let hands = null;
+        let cameraActive = false;
+        let recordingThisFrame = false;
+        let recordingMultipleActive = false;
+        let recordingMultipleLabel = null;
+        let recordingMultipleCount = 0;
+        let dataset = [];
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const canvasCtx = canvas.getContext('2d');
+
+        // Initialize MediaPipe Hands
+        function initHands() {
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults(onHandsResults);
+        }
+
+        // Load dataset from localStorage
+        function loadDataset() {
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (stored) {
+                    dataset = JSON.parse(stored);
+                    console.log('[v0] Dataset loaded:', dataset.length, 'samples');
+                } else {
+                    dataset = [];
+                }
+                displayDataset();
+            } catch (error) {
+                console.error('[v0] Error loading dataset:', error);
+                dataset = [];
+            }
+        }
+
+        // Save dataset to localStorage
+        function saveDataset() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(dataset));
+                console.log('[v0] Dataset saved:', dataset.length, 'samples');
+                displayDataset();
+            } catch (error) {
+                console.error('[v0] Error saving dataset:', error);
+                showAlert('Error saving dataset', 'error');
+            }
+        }
+
+        // Add sample to dataset
+        function addSampleToDataset(label, landmarks) {
+            if (!label || !landmarks) {
+                console.error('[v0] Invalid sample data');
+                return;
+            }
+            
+            dataset.push({ label, landmarks });
+            saveDataset();
+            console.log('[v0] Sample added. Total samples:', dataset.length);
+        }
+
+        // Display dataset
+        function displayDataset() {
+            const listContainer = document.getElementById('dataset-list');
+            
+            if (dataset.length === 0) {
+                listContainer.innerHTML = '<p style="color: #64748b; text-align: center;">No gestures recorded yet</p>';
+                document.getElementById('total-gestures').textContent = '0';
+                document.getElementById('total-samples').textContent = '0';
+                return;
+            }
+
+            // Count samples per label
+            const counts = {};
+            dataset.forEach(sample => {
+                counts[sample.label] = (counts[sample.label] || 0) + 1;
+            });
+
+            // Display list
+            let html = '';
+            Object.entries(counts).forEach(([label, count]) => {
+                html += `
+                    <div class="dataset-item">
+                        <span class="label">${label}</span>
+                        <span class="count">${count} sample${count !== 1 ? 's' : ''}</span>
+                    </div>
+                `;
+            });
+            listContainer.innerHTML = html;
+
+            // Update stats
+            document.getElementById('total-gestures').textContent = Object.keys(counts).length;
+            document.getElementById('total-samples').textContent = dataset.length;
+        }
+
+        // Normalize landmarks
+        function normalizeLandmarks(landmarks) {
+            if (!landmarks || landmarks.length !== 21) {
+                console.log('[v0] Invalid landmarks length:', landmarks?.length);
+                return null;
+            }
+            
+            let coords = [];
+            landmarks.forEach(lm => {
+                coords.push([lm.x, lm.y, lm.z]);
+            });
+            
+            const wrist = coords[0];
+            coords = coords.map(c => [c[0] - wrist[0], c[1] - wrist[1], c[2] - wrist[2]]);
+            
+            let maxDist = 0;
+            coords.forEach(c => {
+                const dist = Math.sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+                if (dist > maxDist) maxDist = dist;
+            });
+            
+            if (maxDist > 0) {
+                coords = coords.map(c => [c[0] / maxDist, c[1] / maxDist, c[2] / maxDist]);
+            }
+            
+            const flat = [];
+            coords.forEach(c => flat.push(...c));
+            console.log('[v0] Landmarks normalized. Length:', flat.length);
+            return flat;
+        }
+
+        // Handle hand detection results
+        function onHandsResults(results) {
+            try {
+                canvasCtx.save();
+                canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+                canvasCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const landmarks = results.multiHandLandmarks[0];
+                    console.log('[v0] Hand detected. Landmarks count:', landmarks.length);
+                    
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#3b82f6', lineWidth: 2 });
+                    drawLandmarks(canvasCtx, landmarks, { color: '#06b6d4', lineWidth: 1 });
+
+                    const normalized = normalizeLandmarks(landmarks);
+                    if (normalized) {
+                        if (recordingThisFrame) {
+                            const label = document.getElementById('gesture-label').value.trim();
+                            if (label) {
+                                console.log('[v0] Recording sample with label:', label);
+                                addSampleToDataset(label, normalized);
+                                recordingThisFrame = false;
+                                showAlert(`Sample recorded: ${label}`, 'success');
+                            } else {
+                                recordingThisFrame = false;
+                                showAlert('Please enter a gesture name', 'error');
+                            }
+                        }
+
+                        if (recordingMultipleActive && recordingMultipleLabel) {
+                            addSampleToDataset(recordingMultipleLabel, normalized);
+                            recordingMultipleCount++;
+                            console.log('[v0] Multiple recording progress:', recordingMultipleCount + '/5');
+
+                            if (recordingMultipleCount >= 5) {
+                                recordingMultipleActive = false;
+                                recordingMultipleCount = 0;
+                                showAlert(`Recorded 5 samples for: ${recordingMultipleLabel}`, 'success');
+                            }
+                        }
+                    }
+                }
+                canvasCtx.restore();
+            } catch (error) {
+                console.error('[v0] onHandsResults error:', error);
+            }
+        }
+
+        // Camera functions
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                video.play();
+
+                if (!hands) {
+                    initHands();
+                }
+
+                camera = new Camera(video, {
+                    onFrame: async () => {
+                        await hands.send({ image: video });
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                await camera.start();
+                cameraActive = true;
+                
+                document.getElementById('start-btn').style.display = 'none';
+                document.getElementById('stop-btn').style.display = 'inline-block';
+                document.getElementById('status-badge').textContent = 'Camera On';
+                document.getElementById('status-badge').classList.add('active');
+                
+                showAlert('Camera started successfully', 'success');
+            } catch (error) {
+                console.error('[v0] Camera error:', error);
+                showAlert('Failed to start camera. Please check permissions.', 'error');
+            }
+        }
+
+        function stopCamera() {
+            if (camera) {
+                camera.stop();
+                camera = null;
+            }
+            
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            
+            cameraActive = false;
+            
+            document.getElementById('start-btn').style.display = 'inline-block';
+            document.getElementById('stop-btn').style.display = 'none';
+            document.getElementById('status-badge').textContent = 'Camera Off';
+            document.getElementById('status-badge').classList.remove('active');
+            
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Recording functions
+        function recordSample() {
+            const label = document.getElementById('gesture-label').value.trim();
+            if (!label) {
+                showAlert('Please enter a gesture name', 'error');
+                return;
+            }
+            
+            if (!cameraActive) {
+                showAlert('Please start the camera first', 'error');
+                return;
+            }
+            
+            recordingThisFrame = true;
+            console.log('[v0] Recording flag set to true');
+        }
+
+        function recordMultiple() {
+            const label = document.getElementById('gesture-label').value.trim();
+            if (!label) {
+                showAlert('Please enter a gesture name', 'error');
+                return;
+            }
+            
+            if (!cameraActive) {
+                showAlert('Please start the camera first', 'error');
+                return;
+            }
+            
+            recordingMultipleActive = true;
+            recordingMultipleLabel = label;
+            recordingMultipleCount = 0;
+            showAlert('Recording 5 samples... hold your gesture steady', 'success');
+        }
+
+        // Dataset management
+        function exportDataset() {
+            if (dataset.length === 0) {
+                showAlert('No data to export', 'error');
+                return;
+            }
+            
+            const dataStr = JSON.stringify(dataset, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `handsign_dataset_${username}_${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showAlert('Dataset exported successfully', 'success');
+        }
+
+        function importDataset() {
+            document.getElementById('import-file').click();
+        }
+
+        function handleImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if (!Array.isArray(imported)) {
+                        showAlert('Invalid dataset format', 'error');
+                        return;
+                    }
+                    
+                    dataset = imported;
+                    saveDataset();
+                    showAlert(`Imported ${dataset.length} samples`, 'success');
+                } catch (error) {
+                    console.error('[v0] Import error:', error);
+                    showAlert('Failed to import dataset', 'error');
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+
+        function clearDataset() {
+            if (dataset.length === 0) {
+                showAlert('Dataset is already empty', 'error');
+                return;
+            }
+            
+            if (confirm(`Are you sure you want to delete all ${dataset.length} samples?`)) {
+                dataset = [];
+                saveDataset();
+                showAlert('Dataset cleared', 'success');
+            }
+        }
+
+        // Alert function
+        function showAlert(message, type) {
+            const alert = document.getElementById('alert');
+            alert.textContent = message;
+            alert.className = `alert ${type}`;
+            alert.style.display = 'block';
+            
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 3000);
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            loadDataset();
+            console.log('[v0] Train page initialized');
+        });
+    </script>
+</body>
+</html>

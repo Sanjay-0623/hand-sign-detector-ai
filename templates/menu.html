@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Menu - Hand Sign Detector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, #3b82f6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        header p {
+            color: #94a3b8;
+            font-size: 0.95rem;
+        }
+
+        .user-info {
+            color: #cbd5e1;
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }
+
+        .user-info a {
+            color: #ef4444;
+            text-decoration: none;
+            font-weight: 500;
+            margin-left: 10px;
+        }
+
+        .user-info a:hover {
+            text-decoration: underline;
+        }
+
+        .menu-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        @media (max-width: 768px) {
+            .menu-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .menu-card {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            padding: 40px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .menu-card:hover {
+            border-color: rgba(59, 130, 246, 0.5);
+            box-shadow: 0 8px 16px rgba(59, 130, 246, 0.2);
+            transform: translateY(-4px);
+        }
+
+        .menu-icon {
+            font-size: 4rem;
+        }
+
+        .menu-card h2 {
+            font-size: 1.8rem;
+            color: #3b82f6;
+        }
+
+        .menu-card p {
+            color: #94a3b8;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        .menu-button {
+            padding: 12px 24px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        .menu-button:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .menu-button:active {
+            transform: translateY(0);
+        }
+
+        .info-box {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            color: #cbd5e1;
+            text-align: center;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>✋ Hand Sign Detector</h1>
+            <p>Choose an action to get started</p>
+        </header>
+
+        <div class="user-info">
+            Welcome, <strong>{{ username }}</strong>
+            <a href="/logout">Logout</a>
+        </div>
+
+        <div class="menu-grid">
+            <!-- DETECT Card -->
+            <a href="/detect" class="menu-card">
+                <div class="menu-icon">🎥</div>
+                <h2>Detect</h2>
+                <p>Use your trained model to detect hand signs in real-time from your camera</p>
+                <button class="menu-button">Start Detecting</button>
+            </a>
+
+            <!-- TRAIN Card -->
+            <a href="/train" class="menu-card">
+                <div class="menu-icon">📚</div>
+                <h2>Train</h2>
+                <p>Record and train new hand sign gestures for your personal dataset</p>
+                <button class="menu-button">Start Training</button>
+            </a>
+        </div>
+
+        <div class="info-box">
+            <strong>How it works:</strong><br>
+            1. Use <strong>Train</strong> to record gesture samples and build your dataset<br>
+            2. Use <strong>Detect</strong> to recognize gestures in real-time<br>
+            3. Export your trained model to share or backup
+        </div>
+    </div>
+</body>
+</html>

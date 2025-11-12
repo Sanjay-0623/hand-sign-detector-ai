@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detect - Hand Sign Detector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            background: linear-gradient(135deg, #3b82f6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            flex: 1;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .nav-buttons a {
+            padding: 10px 16px;
+            background: rgba(148, 163, 184, 0.2);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 6px;
+            color: #cbd5e1;
+            text-decoration: none;
+            transition: all 0.3s;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .nav-buttons a:hover {
+            background: rgba(148, 163, 184, 0.3);
+            border-color: rgba(148, 163, 184, 0.4);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 1024px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            padding: 24px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .card h2 {
+            font-size: 1.3rem;
+            margin-bottom: 16px;
+            color: #3b82f6;
+        }
+
+        .video-container {
+            position: relative;
+            background: #0f172a;
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 16 / 9;
+            margin-bottom: 16px;
+        }
+
+        video, canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .status-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #10b981;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-badge.inactive {
+            color: #ef4444;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .prediction-box {
+            background: rgba(59, 130, 246, 0.1);
+            border: 2px solid #3b82f6;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+            text-align: center;
+        }
+
+        .prediction-label {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #3b82f6;
+            margin-bottom: 8px;
+        }
+
+        .prediction-confidence {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+
+        .no-prediction {
+            color: #64748b;
+            font-style: italic;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .stat-box {
+            background: rgba(59, 130, 246, 0.1);
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 3px solid #3b82f6;
+        }
+
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.8rem;
+            margin-bottom: 4px;
+        }
+
+        .stat-value {
+            color: #3b82f6;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        .dataset-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        .dataset-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 3px solid #3b82f6;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        .dataset-item span {
+            background: rgba(59, 130, 246, 0.3);
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: #93c5fd;
+            font-weight: 500;
+        }
+
+        .empty-dataset {
+            color: #64748b;
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+        }
+
+        .alert {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .alert-success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #6ee7b7;
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(59, 130, 246, 0.5);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎥 Detect Hand Signs</h1>
+            <div class="nav-buttons">
+                <a href="/menu">← Back to Menu</a>
+                <a href="/logout">Logout</a>
+            </div>
+        </header>
+
+        <!-- Added AI mode toggle and settings -->
+        <div class="card" style="margin-bottom: 20px;">
+            <h2>Detection Mode</h2>
+            <div class="controls">
+                <button class="btn-primary" id="mode-knn" onclick="setMode('knn')" style="background: #3b82f6;">KNN (Trained)</button>
+                <button class="btn-primary" id="mode-ai" onclick="setMode('ai')" style="background: rgba(148, 163, 184, 0.3);">AI Vision</button>
+            </div>
+            <div id="ai-settings" style="display: none; margin-top: 16px;">
+                <label style="color: #94a3b8; font-size: 0.9rem; display: block; margin-bottom: 8px;">AI Provider</label>
+                <select id="ai-provider" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 6px; color: #e2e8f0; margin-bottom: 12px;">
+                    <option value="openai">OpenAI (GPT-4 Vision)</option>
+                    <option value="anthropic">Anthropic (Claude Vision)</option>
+                    <option value="groq">Groq (Llama Vision)</option>
+                </select>
+                <label style="color: #94a3b8; font-size: 0.9rem; display: block; margin-bottom: 8px;">API Key</label>
+                <input type="password" id="ai-api-key" placeholder="Enter your API key" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 6px; color: #e2e8f0; margin-bottom: 8px;">
+                <div style="color: #94a3b8; font-size: 0.8rem;">
+                    <p>ℹ️ Your API key is stored locally and never saved on the server.</p>
+                    <p style="margin-top: 4px;">Get keys: <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #3b82f6;">OpenAI</a> | <a href="https://console.anthropic.com/" target="_blank" style="color: #3b82f6;">Anthropic</a> | <a href="https://console.groq.com/" target="_blank" style="color: #3b82f6;">Groq</a></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div>
+                <div class="card">
+                    <h2>Camera Feed</h2>
+                    <div class="video-container">
+                        <video id="video" playsinline></video>
+                        <canvas id="canvas"></canvas>
+                        <div class="status-badge" id="status-badge">Camera Off</div>
+                    </div>
+                    <div class="controls">
+                        <button class="btn-primary" id="start-btn" onclick="startCamera()">Start Camera</button>
+                        <button class="btn-danger" id="stop-btn" onclick="stopCamera()" disabled>Stop Camera</button>
+                    </div>
+
+                    <div class="prediction-box" id="prediction-box">
+                        <div class="prediction-label no-prediction">Awaiting hand...</div>
+                        <div class="prediction-confidence">Confidence: —</div>
+                        <div class="prediction-text" id="prediction-text" style="margin-top: 12px; color: #6ee7b7; font-size: 0.95rem;"></div>
+                        <button class="btn-primary" id="speak-btn" onclick="speakPrediction()" style="width: 100%; margin-top: 8px; display: none;">🔊 Speak</button>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="card">
+                    <h2>Statistics</h2>
+                    <div class="stats">
+                        <div class="stat-box">
+                            <div class="stat-label">Total Gestures</div>
+                            <div class="stat-value" id="total-gestures">0</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">Total Samples</div>
+                            <div class="stat-value" id="total-samples">0</div>
+                        </div>
+                    </div>
+
+                    <h2 style="margin-top: 24px;">Trained Gestures</h2>
+                    <div class="dataset-list" id="dataset-list">
+                        <div class="empty-dataset">No gestures trained yet</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MediaPipe Scripts -->
+    <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <script>
+        let cameraActive = false;
+        let hands = null;
+        let camera = null;
+        let canvasCtx = null;
+        let dataset = [];
+        let kValue = 3;
+        const username = '{{ username }}';
+        const STORAGE_KEY = `handsign_dataset_${username}`;
+        const CANVAS_WIDTH = 1280;
+        const CANVAS_HEIGHT = 720;
+        let currentPrediction = null;
+        let lastSpokenLabel = '';
+        let detectionMode = 'knn'; // 'knn' or 'ai'
+        let aiProvider = 'openai';
+        let aiApiKey = '';
+        let lastAiCallTime = 0;
+        const AI_CALL_INTERVAL = 2000; // Call AI every 2 seconds
+
+        const HAND_CONNECTIONS = [
+            [0, 1], [1, 2], [2, 3], [3, 4],
+            [0, 5], [5, 6], [6, 7], [7, 8],
+            [5, 9], [9, 10], [10, 11], [11, 12],
+            [9, 13], [13, 14], [14, 15], [15, 16],
+            [13, 17], [17, 18], [18, 19], [19, 20],
+            [0, 17], [0, 13], [0, 9]
+        ];
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadDataset();
+            updateStats();
+            initializeMediaPipe();
+            loadAiSettings();
+        });
+
+        function setMode(mode) {
+            detectionMode = mode;
+            document.getElementById('mode-knn').style.background = mode === 'knn' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
+            document.getElementById('mode-ai').style.background = mode === 'ai' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
+            document.getElementById('ai-settings').style.display = mode === 'ai' ? 'block' : 'none';
+            
+            if (mode === 'ai' && !aiApiKey) {
+                alert('Please enter your API key to use AI vision mode');
+            }
+        }
+
+        function loadAiSettings() {
+            const savedKey = localStorage.getItem('ai_api_key');
+            const savedProvider = localStorage.getItem('ai_provider');
+            if (savedKey) {
+                aiApiKey = savedKey;
+                document.getElementById('ai-api-key').value = savedKey;
+            }
+            if (savedProvider) {
+                aiProvider = savedProvider;
+                document.getElementById('ai-provider').value = savedProvider;
+            }
+            
+            document.getElementById('ai-api-key').addEventListener('change', (e) => {
+                aiApiKey = e.target.value;
+                localStorage.setItem('ai_api_key', aiApiKey);
+            });
+            
+            document.getElementById('ai-provider').addEventListener('change', (e) => {
+                aiProvider = e.target.value;
+                localStorage.setItem('ai_provider', aiProvider);
+            });
+        }
+
+        async function detectWithAi(imageData) {
+            try {
+                const response = await fetch('/api/detect-vision', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        image: imageData,
+                        api_key: aiApiKey,
+                        provider: aiProvider
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'AI detection failed');
+                }
+                
+                const result = await response.json();
+                return result;
+            } catch (error) {
+                console.error('[v0] AI detection error:', error);
+                return null;
+            }
+        }
+
+        function captureFrame() {
+            const canvas = document.getElementById('canvas');
+            return canvas.toDataURL('image/jpeg', 0.8);
+        }
+
+        async function initializeMediaPipe() {
+            try {
+                hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+
+                hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+
+                hands.onResults(onHandsResults);
+            } catch (error) {
+                console.error('Failed to initialize MediaPipe:', error);
+            }
+        }
+
+        async function startCamera() {
+            if (cameraActive) return;
+            try {
+                const canvas = document.getElementById('canvas');
+                canvas.width = CANVAS_WIDTH;
+                canvas.height = CANVAS_HEIGHT;
+                canvasCtx = canvas.getContext('2d');
+
+                const video = document.getElementById('video');
+
+                try {
+                    camera = new Camera(video, {
+                        onFrame: async () => {
+                            if (cameraActive) {
+                                await hands.send({ image: video });
+                            }
+                        },
+                        width: CANVAS_WIDTH,
+                        height: CANVAS_HEIGHT
+                    });
+                    await camera.start();
+                    console.log('[v0] Camera started with MediaPipe Camera');
+                } catch (e) {
+                    console.log('[v0] MediaPipe Camera failed, using getUserMedia fallback:', e);
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: 'user',
+                            width: CANVAS_WIDTH,
+                            height: CANVAS_HEIGHT
+                        } 
+                    });
+                    video.srcObject = stream;
+                    
+                    // Wait for video to be ready
+                    await new Promise((resolve) => {
+                        video.onloadedmetadata = () => {
+                            video.play();
+                            resolve();
+                        };
+                    });
+                    
+                    console.log('[v0] Video playing, starting frame processing');
+                    
+                    const processFrame = async () => {
+                        if (cameraActive && video.readyState === video.HAVE_ENOUGH_DATA) {
+                            await hands.send({ image: video });
+                        }
+                        if (cameraActive) {
+                            requestAnimationFrame(processFrame);
+                        }
+                    };
+                    requestAnimationFrame(processFrame);
+                }
+
+                cameraActive = true;
+                document.getElementById('start-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = false;
+                updateStatusBadge(true);
+                console.log('[v0] Camera initialization complete');
+            } catch (error) {
+                console.error('[v0] Camera error:', error);
+                alert('Failed to start camera. Please check permissions and try again.');
+            }
+        }
+
+        function stopCamera() {
+            if (!cameraActive) return;
+            try {
+                if (camera) camera.stop();
+                const video = document.getElementById('video');
+                if (video.srcObject) {
+                    video.srcObject.getTracks().forEach(track => track.stop());
+                }
+                cameraActive = false;
+                document.getElementById('start-btn').disabled = false;
+                document.getElementById('stop-btn').disabled = true;
+                updateStatusBadge(false);
+            } catch (error) {
+                console.error('Error stopping camera:', error);
+            }
+        }
+
+        function updateStatusBadge(active) {
+            const badge = document.getElementById('status-badge');
+            if (active) {
+                badge.textContent = '● Live';
+                badge.classList.remove('inactive');
+            } else {
+                badge.textContent = 'Camera Off';
+                badge.classList.add('inactive');
+            }
+        }
+
+        function normalizeLandmarks(landmarks) {
+            if (!landmarks || landmarks.length !== 21) return null;
+            let coords = [];
+            landmarks.forEach(lm => {
+                coords.push([lm.x, lm.y, lm.z]);
+            });
+            const wrist = coords[0];
+            coords = coords.map(c => [c[0] - wrist[0], c[1] - wrist[1], c[2] - wrist[2]]);
+            let maxDist = 0;
+            coords.forEach(c => {
+                const dist = Math.sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+                if (dist > maxDist) maxDist = dist;
+            });
+            if (maxDist > 0) {
+                coords = coords.map(c => [c[0] / maxDist, c[1] / maxDist, c[2] / maxDist]);
+            }
+            const flat = [];
+            coords.forEach(c => flat.push(...c));
+            return flat;
+        }
+
+        function predict(testLandmarks) {
+            if (!testLandmarks || !Array.isArray(dataset) || dataset.length === 0) {
+                console.log('[v0] Cannot predict: testLandmarks:', testLandmarks ? 'valid' : 'null', 'dataset length:', dataset.length);
+                return null;
+            }
+            
+            console.log('[v0] Running KNN with K =', kValue, 'on', dataset.length, 'samples');
+            
+            const distances = [];
+            dataset.forEach((sample, idx) => {
+                if (sample.label && Array.isArray(sample.landmarks) && sample.landmarks.length === 63) {
+                    let dist = 0;
+                    for (let i = 0; i < 63; i++) {
+                        const diff = testLandmarks[i] - sample.landmarks[i];
+                        dist += diff * diff;
+                    }
+                    dist = Math.sqrt(dist);
+                    distances.push({ label: sample.label, dist });
+                } else {
+                    console.log('[v0] Sample', idx, 'invalid - label:', sample.label, 'landmarks length:', sample.landmarks?.length);
+                }
+            });
+            
+            if (distances.length === 0) {
+                console.log('[v0] No valid samples for prediction');
+                return null;
+            }
+            
+            console.log('[v0] Computed', distances.length, 'distances');
+            
+            distances.sort((a, b) => a.dist - b.dist);
+            const k = Math.min(kValue, distances.length);
+            const kNearest = distances.slice(0, k);
+            
+            console.log('[v0] K-nearest neighbors:', kNearest);
+            
+            const votes = {};
+            kNearest.forEach(({ label }) => {
+                votes[label] = (votes[label] || 0) + 1;
+            });
+            const predicted = Object.keys(votes).reduce((a, b) => votes[a] > votes[b] ? a : b);
+            const nearestDist = kNearest[0].dist;
+            const confidence = 1.0 / (1.0 + nearestDist);
+            
+            console.log('[v0] Predicted:', predicted, 'Confidence:', confidence);
+            
+            return { label: predicted, confidence: parseFloat(confidence.toFixed(4)) };
+        }
+
+        function onHandsResults(results) {
+            try {
+                const canvas = document.getElementById('canvas');
+                const video = document.getElementById('video');
+                canvasCtx.save();
+                canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+                canvasCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    console.log('[v0] Hand detected with', results.multiHandLandmarks[0].length, 'landmarks');
+                    const landmarks = results.multiHandLandmarks[0];
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#3b82f6', lineWidth: 2 });
+                    drawLandmarks(canvasCtx, landmarks, { color: '#06b6d4', lineWidth: 1 });
+                    
+                    if (detectionMode === 'ai') {
+                        const now = Date.now();
+                        if (now - lastAiCallTime >= AI_CALL_INTERVAL) {
+                            lastAiCallTime = now;
+                            if (aiApiKey) {
+                                const imageData = captureFrame();
+                                detectWithAi(imageData).then(prediction => {
+                                    if (prediction && prediction.label !== 'none') {
+                                        displayPrediction(prediction);
+                                        currentPrediction = prediction;
+                                        autoSpeak(prediction);
+                                    } else {
+                                        displayPrediction(null);
+                                    }
+                                });
+                            } else {
+                                displayPrediction({ label: 'No API Key', confidence: 0 });
+                            }
+                        }
+                    } else {
+                        // KNN mode
+                        const normalized = normalizeLandmarks(landmarks);
+                        if (normalized && normalized.length === 63) {
+                            console.log('[v0] Normalized landmarks, running prediction...');
+                            const prediction = predict(normalized);
+                            console.log('[v0] Prediction result:', prediction);
+                            displayPrediction(prediction);
+                            currentPrediction = prediction;
+                            if (prediction) {
+                                autoSpeak(prediction);
+                            }
+                        } else {
+                            console.log('[v0] Normalization failed or invalid length');
+                        }
+                    }
+                } else {
+                    displayPrediction(null);
+                    currentPrediction = null;
+                }
+                canvasCtx.restore();
+            } catch (error) {
+                console.error('[v0] onHandsResults error:', error);
+            }
+        }
+
+        function displayPrediction(prediction) {
+            const box = document.getElementById('prediction-box');
+            if (prediction) {
+                const conf = (prediction.confidence * 100).toFixed(1);
+                box.innerHTML = `
+                    <div class="prediction-label">${prediction.label}</div>
+                    <div class="prediction-confidence">Confidence: ${conf}%</div>
+                    <div class="prediction-text">Detected: <strong>${prediction.label.toUpperCase()}</strong></div>
+                `;
+                document.getElementById('speak-btn').style.display = 'block';
+            } else {
+                box.innerHTML = `
+                    <div class="prediction-label no-prediction">Awaiting hand...</div>
+                    <div class="prediction-confidence">Confidence: —</div>
+                    <div class="prediction-text"></div>
+                `;
+                document.getElementById('speak-btn').style.display = 'none';
+            }
+        }
+
+        function speakPrediction() {
+            if (!currentPrediction) return;
+            const utterance = new SpeechSynthesisUtterance(currentPrediction.label);
+            utterance.rate = 0.9;
+            speechSynthesis.speak(utterance);
+        }
+
+        function autoSpeak(prediction) {
+            if (!prediction || prediction.label === lastSpokenLabel) return;
+            if (prediction.confidence < 0.6) return;
+            lastSpokenLabel = prediction.label;
+            const utterance = new SpeechSynthesisUtterance(prediction.label);
+            utterance.rate = 0.9;
+            utterance.volume = 0.7;
+            speechSynthesis.speak(utterance);
+            setTimeout(() => {
+                lastSpokenLabel = '';
+            }, 2000);
+        }
+
+        function loadDataset() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            console.log('[v0] Loading dataset from:', STORAGE_KEY);
+            if (saved) {
+                try {
+                    dataset = JSON.parse(saved);
+                    console.log('[v0] Dataset loaded:', dataset.length, 'samples');
+                    if (!Array.isArray(dataset)) {
+                        console.error('[v0] Dataset is not an array, resetting');
+                        dataset = [];
+                    }
+                    updateStats();
+                    updateDatasetList();
+                } catch (error) {
+                    console.error('[v0] Failed to load dataset:', error);
+                    dataset = [];
+                }
+            } else {
+                console.log('[v0] No saved dataset found');
+                dataset = [];
+            }
+        }
+
+        function updateStats() {
+            let totalSamples = dataset.length;
+            const labelCounts = {};
+            dataset.forEach(sample => {
+                if (sample.label) {
+                    labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                }
+            });
+            const totalGestures = Object.keys(labelCounts).length;
+            
+            document.getElementById('total-gestures').textContent = totalGestures;
+            document.getElementById('total-samples').textContent = totalSamples;
+            console.log('[v0] Stats updated - Gestures:', totalGestures, 'Samples:', totalSamples);
+        }
+
+        function updateDatasetList() {
+            const list = document.getElementById('dataset-list');
+            const labelCounts = {};
+            dataset.forEach(sample => {
+                if (sample.label) {
+                    labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                }
+            });
+            
+            if (Object.keys(labelCounts).length === 0) {
+                list.innerHTML = '<div class="empty-dataset">No gestures trained yet. Go to Train to record gestures.</div>';
+                return;
+            }
+            
+            let html = '';
+            Object.entries(labelCounts).forEach(([label, count]) => {
+                html += `<div class="dataset-item"><span>${label}</span><span>${count} sample${count !== 1 ? 's' : ''}</span></div>`;
+            });
+            list.innerHTML = html;
+        }
+
+        function drawConnectors(ctx, landmarks, connections, options) {
+            ctx.strokeStyle = options.color || '#00ff00';
+            ctx.lineWidth = options.lineWidth || 2;
+            connections.forEach(([start, end]) => {
+                const p1 = landmarks[start];
+                const p2 = landmarks[end];
+                ctx.beginPath();
+                ctx.moveTo(p1.x * CANVAS_WIDTH, p1.y * CANVAS_HEIGHT);
+                ctx.lineTo(p2.x * CANVAS_WIDTH, p2.y * CANVAS_HEIGHT);
+                ctx.stroke();
+            });
+        }
+
+        function drawLandmarks(ctx, landmarks, options) {
+            ctx.fillStyle = options.color || '#ff0000';
+            landmarks.forEach(landmark => {
+                const radius = options.lineWidth || 3;
+                ctx.beginPath();
+                ctx.arc(landmark.x * CANVAS_WIDTH, landmark.y * CANVAS_HEIGHT, radius, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+        }
+    </script>
+</body>
+</html>
