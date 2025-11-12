@@ -407,6 +407,9 @@
         ];
 
         window.addEventListener('DOMContentLoaded', () => {
+            console.log('[v0] Page loaded, initializing...');
+            console.log('[v0] Username:', username);
+            console.log('[v0] Storage key:', STORAGE_KEY);
             loadDataset();
             updateStats();
             initializeMediaPipe();
@@ -451,6 +454,23 @@
 
         async function initializeMediaPipe() {
             try {
+                console.log('[v0] Starting MediaPipe initialization...');
+                
+                let attempts = 0;
+                while (typeof Hands === 'undefined' && attempts < 50) {
+                    console.log('[v0] Waiting for MediaPipe Hands to load... attempt', attempts + 1);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    attempts++;
+                }
+                
+                if (typeof Hands === 'undefined') {
+                    console.error('[v0] MediaPipe Hands failed to load after 5 seconds');
+                    alert('Failed to load MediaPipe. Please refresh the page.');
+                    return;
+                }
+                
+                console.log('[v0] MediaPipe Hands loaded successfully');
+                
                 hands = new Hands({
                     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
                 });
@@ -463,25 +483,46 @@
                 });
 
                 hands.onResults(onHandsResults);
+                console.log('[v0] MediaPipe initialization complete');
             } catch (error) {
-                console.error('Failed to initialize MediaPipe:', error);
+                console.error('[v0] Failed to initialize MediaPipe:', error);
+                alert('MediaPipe initialization failed: ' + error.message);
             }
         }
 
         async function startCamera() {
-            if (cameraActive) return;
+            if (cameraActive) {
+                console.log('[v0] Camera already active');
+                return;
+            }
+            
+            if (!hands) {
+                console.error('[v0] MediaPipe Hands not initialized');
+                alert('MediaPipe not ready. Please wait and try again.');
+                return;
+            }
+            
             try {
+                console.log('[v0] Starting camera...');
                 const canvas = document.getElementById('canvas');
                 canvas.width = CANVAS_WIDTH;
                 canvas.height = CANVAS_HEIGHT;
                 canvasCtx = canvas.getContext('2d');
+                console.log('[v0] Canvas configured:', CANVAS_WIDTH, 'x', CANVAS_HEIGHT);
 
                 const video = document.getElementById('video');
 
                 try {
+                    console.log('[v0] Attempting MediaPipe Camera...');
+                    
+                    // Check if Camera is available
+                    if (typeof Camera === 'undefined') {
+                        throw new Error('MediaPipe Camera not loaded');
+                    }
+                    
                     camera = new Camera(video, {
                         onFrame: async () => {
-                            if (cameraActive) {
+                            if (cameraActive && hands) {
                                 await hands.send({ image: video });
                             }
                         },
@@ -495,29 +536,43 @@
                     const stream = await navigator.mediaDevices.getUserMedia({ 
                         video: { 
                             facingMode: 'user',
-                            width: CANVAS_WIDTH,
-                            height: CANVAS_HEIGHT
+                            width: { ideal: CANVAS_WIDTH },
+                            height: { ideal: CANVAS_HEIGHT }
                         } 
                     });
                     video.srcObject = stream;
+                    console.log('[v0] getUserMedia stream obtained');
                     
-                    // Wait for video to be ready
                     await new Promise((resolve) => {
                         video.onloadedmetadata = () => {
-                            video.play();
-                            resolve();
+                            console.log('[v0] Video metadata loaded');
+                            video.play().then(() => {
+                                console.log('[v0] Video playing');
+                                resolve();
+                            }).catch(err => {
+                                console.error('[v0] Video play failed:', err);
+                                resolve();
+                            });
                         };
                     });
                     
-                    console.log('[v0] Video playing, starting frame processing');
+                    console.log('[v0] Video ready, starting frame processing loop');
                     
                     const processFrame = async () => {
-                        if (cameraActive && video.readyState === video.HAVE_ENOUGH_DATA) {
-                            await hands.send({ image: video });
+                        if (!cameraActive) {
+                            console.log('[v0] Camera stopped, ending frame processing');
+                            return;
                         }
-                        if (cameraActive) {
-                            requestAnimationFrame(processFrame);
+                        
+                        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                            try {
+                                await hands.send({ image: video });
+                            } catch (err) {
+                                console.error('[v0] Frame processing error:', err);
+                            }
                         }
+                        
+                        requestAnimationFrame(processFrame);
                     };
                     requestAnimationFrame(processFrame);
                 }
@@ -526,10 +581,10 @@
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
                 updateStatusBadge(true);
-                console.log('[v0] Camera initialization complete');
+                console.log('[v0] Camera initialization complete, cameraActive =', cameraActive);
             } catch (error) {
                 console.error('[v0] Camera error:', error);
-                alert('Failed to start camera. Please check permissions and try again.');
+                alert('Failed to start camera: ' + error.message + '\n\nPlease check camera permissions and try again.');
             }
         }
 
@@ -731,23 +786,39 @@
 
         function loadDataset() {
             const saved = localStorage.getItem(STORAGE_KEY);
-            console.log('[v0] Loading dataset from:', STORAGE_KEY);
+            console.log('[v0] Loading dataset from localStorage key:', STORAGE_KEY);
+            console.log('[v0] Raw localStorage value:', saved ? saved.substring(0, 100) + '...' : 'null');
+            
             if (saved) {
                 try {
                     dataset = JSON.parse(saved);
-                    console.log('[v0] Dataset loaded:', dataset.length, 'samples');
+                    console.log('[v0] Dataset parsed successfully');
+                    console.log('[v0] Dataset type:', Array.isArray(dataset) ? 'array' : typeof dataset);
+                    console.log('[v0] Dataset length:', dataset.length);
+                    
                     if (!Array.isArray(dataset)) {
                         console.error('[v0] Dataset is not an array, resetting');
                         dataset = [];
+                    } else {
+                        if (dataset.length > 0) {
+                            const firstSample = dataset[0];
+                            console.log('[v0] First sample:', {
+                                label: firstSample.label,
+                                landmarksLength: firstSample.landmarks?.length,
+                                landmarksType: Array.isArray(firstSample.landmarks) ? 'array' : typeof firstSample.landmarks
+                            });
+                        }
                     }
+                    
                     updateStats();
                     updateDatasetList();
                 } catch (error) {
-                    console.error('[v0] Failed to load dataset:', error);
+                    console.error('[v0] Failed to parse dataset:', error);
                     dataset = [];
                 }
             } else {
-                console.log('[v0] No saved dataset found');
+                console.log('[v0] No saved dataset found in localStorage');
+                console.log('[v0] Available localStorage keys:', Object.keys(localStorage));
                 dataset = [];
             }
         }
