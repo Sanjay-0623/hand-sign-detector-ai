@@ -172,6 +172,181 @@ def stats():
     })
 
 
+@app.route('/api/detect-vision', methods=['POST'])
+@login_required
+def detect_vision():
+    """Use AI vision model to detect hand signs"""
+    try:
+        data = request.json
+        image_data = data.get('image')
+        
+        # Read API key from environment variables
+        api_key = os.environ.get('AI_API_KEY')
+        provider = os.environ.get('AI_PROVIDER', 'openai').lower()
+        
+        if not image_data:
+            return jsonify({"error": "Missing image"}), 400
+            
+        if not api_key:
+            return jsonify({"error": "AI_API_KEY not configured on server"}), 500
+        
+        # Remove data URL prefix if present
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+        
+        # Call appropriate API
+        if provider == 'openai':
+            response = call_openai_vision(image_data, api_key)
+        elif provider == 'anthropic':
+            response = call_anthropic_vision(image_data, api_key)
+        elif provider == 'groq':
+            response = call_groq_vision(image_data, api_key)
+        else:
+            return jsonify({"error": f"Unsupported provider: {provider}"}), 400
+        
+        return jsonify(response)
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def call_openai_vision(image_base64, api_key):
+    """Call OpenAI GPT-4 Vision API"""
+    import requests
+    
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    payload = {
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Analyze this image and identify the hand sign or gesture being shown. Respond ONLY with the name of the gesture in lowercase (e.g., 'thumbs-up', 'peace', 'ok', 'pointing', 'fist', 'open-palm', etc.). If no clear hand sign is visible, respond with 'none'."
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_base64}"
+                        }
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 50
+    }
+    
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    response.raise_for_status()
+    result = response.json()
+    
+    label = result['choices'][0]['message']['content'].strip().lower()
+    
+    return {
+        "label": label,
+        "confidence": 0.95,
+        "provider": "openai"
+    }
+
+
+def call_anthropic_vision(image_base64, api_key):
+    """Call Anthropic Claude Vision API"""
+    import requests
+    
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01"
+    }
+    
+    payload = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 50,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": image_base64
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": "Identify the hand sign or gesture. Respond ONLY with the gesture name in lowercase (e.g., 'thumbs-up', 'peace', 'ok'). If no hand sign is visible, say 'none'."
+                    }
+                ]
+            }
+        ]
+    }
+    
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    response.raise_for_status()
+    result = response.json()
+    
+    label = result['content'][0]['text'].strip().lower()
+    
+    return {
+        "label": label,
+        "confidence": 0.95,
+        "provider": "anthropic"
+    }
+
+
+def call_groq_vision(image_base64, api_key):
+    """Call Groq Vision API"""
+    import requests
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    payload = {
+        "model": "llama-3.2-90b-vision-preview",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Identify the hand sign. Respond ONLY with the gesture name in lowercase (e.g., 'thumbs-up', 'peace'). If no hand is visible, say 'none'."
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_base64}"
+                        }
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 50
+    }
+    
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    response.raise_for_status()
+    result = response.json()
+    
+    label = result['choices'][0]['message']['content'].strip().lower()
+    
+    return {
+        "label": label,
+        "confidence": 0.95,
+        "provider": "groq"
+    }
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"""

@@ -316,26 +316,16 @@
             </div>
         </header>
 
-        <!-- Added AI mode toggle and settings -->
+        <!-- Simplified AI mode toggle without API key inputs -->
         <div class="card" style="margin-bottom: 20px;">
             <h2>Detection Mode</h2>
             <div class="controls">
                 <button class="btn-primary" id="mode-knn" onclick="setMode('knn')" style="background: #3b82f6;">KNN (Trained)</button>
                 <button class="btn-primary" id="mode-ai" onclick="setMode('ai')" style="background: rgba(148, 163, 184, 0.3);">AI Vision</button>
             </div>
-            <div id="ai-settings" style="display: none; margin-top: 16px;">
-                <label style="color: #94a3b8; font-size: 0.9rem; display: block; margin-bottom: 8px;">AI Provider</label>
-                <select id="ai-provider" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 6px; color: #e2e8f0; margin-bottom: 12px;">
-                    <option value="openai">OpenAI (GPT-4 Vision)</option>
-                    <option value="anthropic">Anthropic (Claude Vision)</option>
-                    <option value="groq">Groq (Llama Vision)</option>
-                </select>
-                <label style="color: #94a3b8; font-size: 0.9rem; display: block; margin-bottom: 8px;">API Key</label>
-                <input type="password" id="ai-api-key" placeholder="Enter your API key" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 6px; color: #e2e8f0; margin-bottom: 8px;">
-                <div style="color: #94a3b8; font-size: 0.8rem;">
-                    <p>ℹ️ Your API key is stored locally and never saved on the server.</p>
-                    <p style="margin-top: 4px;">Get keys: <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #3b82f6;">OpenAI</a> | <a href="https://console.anthropic.com/" target="_blank" style="color: #3b82f6;">Anthropic</a> | <a href="https://console.groq.com/" target="_blank" style="color: #3b82f6;">Groq</a></p>
-                </div>
+            <div id="ai-info" style="display: none; margin-top: 16px; color: #94a3b8; font-size: 0.9rem;">
+                <p>ℹ️ AI Vision mode uses server-configured AI providers to detect hand signs automatically without training.</p>
+                <p style="margin-top: 8px;">The API key and provider are configured by the administrator in the server environment variables.</p>
             </div>
         </div>
 
@@ -404,8 +394,6 @@
         let currentPrediction = null;
         let lastSpokenLabel = '';
         let detectionMode = 'knn'; // 'knn' or 'ai'
-        let aiProvider = 'openai';
-        let aiApiKey = '';
         let lastAiCallTime = 0;
         const AI_CALL_INTERVAL = 2000; // Call AI every 2 seconds
 
@@ -422,41 +410,13 @@
             loadDataset();
             updateStats();
             initializeMediaPipe();
-            loadAiSettings();
         });
 
         function setMode(mode) {
             detectionMode = mode;
             document.getElementById('mode-knn').style.background = mode === 'knn' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
             document.getElementById('mode-ai').style.background = mode === 'ai' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
-            document.getElementById('ai-settings').style.display = mode === 'ai' ? 'block' : 'none';
-            
-            if (mode === 'ai' && !aiApiKey) {
-                alert('Please enter your API key to use AI vision mode');
-            }
-        }
-
-        function loadAiSettings() {
-            const savedKey = localStorage.getItem('ai_api_key');
-            const savedProvider = localStorage.getItem('ai_provider');
-            if (savedKey) {
-                aiApiKey = savedKey;
-                document.getElementById('ai-api-key').value = savedKey;
-            }
-            if (savedProvider) {
-                aiProvider = savedProvider;
-                document.getElementById('ai-provider').value = savedProvider;
-            }
-            
-            document.getElementById('ai-api-key').addEventListener('change', (e) => {
-                aiApiKey = e.target.value;
-                localStorage.setItem('ai_api_key', aiApiKey);
-            });
-            
-            document.getElementById('ai-provider').addEventListener('change', (e) => {
-                aiProvider = e.target.value;
-                localStorage.setItem('ai_provider', aiProvider);
-            });
+            document.getElementById('ai-info').style.display = mode === 'ai' ? 'block' : 'none';
         }
 
         async function detectWithAi(imageData) {
@@ -467,9 +427,7 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        image: imageData,
-                        api_key: aiApiKey,
-                        provider: aiProvider
+                        image: imageData
                     })
                 });
                 
@@ -691,20 +649,19 @@
                         const now = Date.now();
                         if (now - lastAiCallTime >= AI_CALL_INTERVAL) {
                             lastAiCallTime = now;
-                            if (aiApiKey) {
-                                const imageData = captureFrame();
-                                detectWithAi(imageData).then(prediction => {
-                                    if (prediction && prediction.label !== 'none') {
-                                        displayPrediction(prediction);
-                                        currentPrediction = prediction;
-                                        autoSpeak(prediction);
-                                    } else {
-                                        displayPrediction(null);
-                                    }
-                                });
-                            } else {
-                                displayPrediction({ label: 'No API Key', confidence: 0 });
-                            }
+                            const imageData = captureFrame();
+                            detectWithAi(imageData).then(prediction => {
+                                if (prediction && prediction.label !== 'none') {
+                                    displayPrediction(prediction);
+                                    currentPrediction = prediction;
+                                    autoSpeak(prediction);
+                                } else {
+                                    displayPrediction(null);
+                                }
+                            }).catch(error => {
+                                console.error('[v0] AI detection failed:', error);
+                                displayPrediction({ label: 'AI Error', confidence: 0 });
+                            });
                         }
                     } else {
                         // KNN mode

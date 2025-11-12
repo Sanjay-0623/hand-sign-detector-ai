@@ -151,11 +151,15 @@ def detect_vision():
     try:
         data = request.json
         image_data = data.get('image')  # base64 encoded image
-        api_key = data.get('api_key')
-        provider = data.get('provider', 'openai')  # openai, anthropic, groq
         
-        if not image_data or not api_key:
-            return jsonify({"error": "Missing image or API key"}), 400
+        api_key = os.environ.get('AI_API_KEY')
+        provider = os.environ.get('AI_PROVIDER', 'openai').lower()
+        
+        if not image_data:
+            return jsonify({"error": "Missing image"}), 400
+            
+        if not api_key:
+            return jsonify({"error": "AI_API_KEY not configured on server"}), 500
         
         # Remove data URL prefix if present
         if ',' in image_data:
@@ -169,7 +173,7 @@ def detect_vision():
         elif provider == 'groq':
             response = call_groq_vision(image_data, api_key)
         else:
-            return jsonify({"error": "Unsupported provider"}), 400
+            return jsonify({"error": f"Unsupported provider: {provider}"}), 400
         
         return jsonify(response)
     
