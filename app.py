@@ -279,6 +279,12 @@ def call_openai_vision(image_base64, api_key):
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         print(f"[DEBUG] OpenAI response status: {response.status_code}")
+        
+        if response.status_code == 429:
+            error_data = response.json()
+            print(f"[ERROR] Rate limited by OpenAI: {error_data}")
+            raise requests.exceptions.HTTPError(f"429 Client Error: Too Many Requests for url: {url}")
+        
         response.raise_for_status()
         result = response.json()
         
@@ -292,7 +298,8 @@ def call_openai_vision(image_base64, api_key):
         }
     except requests.exceptions.RequestException as e:
         print(f"[ERROR] OpenAI API request failed: {str(e)}")
-        if hasattr(e.response, 'text'):
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"[ERROR] Response status: {e.response.status_code}")
             print(f"[ERROR] Response body: {e.response.text}")
         raise
 
@@ -325,7 +332,7 @@ def call_anthropic_vision(image_base64, api_key):
                     },
                     {
                         "type": "text",
-                        "text": "Identify the hand sign or gesture. Respond ONLY with the gesture name in lowercase (e.g., 'thumbs-up', 'peace', 'ok'). If no hand sign is visible, say 'none'."
+                        "text": "Identify the hand sign or gesture. Respond ONLY with the gesture name in lowercase (e.g., 'thumbs-up', 'peace'). If no hand sign is visible, say 'none'."
                     }
                 ]
             }

@@ -395,7 +395,10 @@
         let lastSpokenLabel = '';
         let detectionMode = 'knn'; // 'knn' or 'ai'
         let lastAiCallTime = 0;
-        const AI_CALL_INTERVAL = 2000; // Call AI every 2 seconds
+        const AI_CALL_INTERVAL = 5000; // Call AI every 5 seconds to avoid rate limits
+        let aiRetryDelay = 5000; // Start with 5s delay, will increase on errors
+        let lastAiResult = null; // Cache last result
+        let consecutiveErrors = 0; // Track errors for exponential backoff
 
         const HAND_CONNECTIONS = [
             [0, 1], [1, 2], [2, 3], [3, 4],
@@ -444,17 +447,40 @@
                 if (!response.ok) {
                     const error = await response.json();
                     console.error('[v0] AI API error response:', error);
+                    
+                    if (response.status === 429) {
+                        consecutiveErrors++;
+                        aiRetryDelay = Math.min(30000, aiRetryDelay * 2); // Max 30 seconds
+                        console.log('[v0] Rate limited! Increasing delay to', aiRetryDelay, 'ms');
+                        displayPrediction({ 
+                            label: `Rate Limited - Retrying in ${aiRetryDelay/1000}s`, 
+                            confidence: 0 
+                        });
+                        // Return last successful result if available
+                        if (lastAiResult) {
+                            setTimeout(() => displayPrediction(lastAiResult), 3000);
+                        }
+                        return lastAiResult;
+                    }
+                    
                     displayPrediction({ label: 'Error: ' + (error.error || 'AI detection failed'), confidence: 0 });
                     return null;
                 }
                 
                 const result = await response.json();
                 console.log('[v0] AI detection result:', result);
+                
+                consecutiveErrors = 0;
+                aiRetryDelay = 5000; // Reset to 5 seconds
+                lastAiResult = result; // Cache successful result
+                
                 return result;
             } catch (error) {
                 console.error('[v0] AI detection error:', error);
+                consecutiveErrors++;
+                aiRetryDelay = Math.min(30000, aiRetryDelay * 1.5);
                 displayPrediction({ label: 'Network Error: ' + error.message, confidence: 0 });
-                return null;
+                return lastAiResult; // Return cached result
             }
         }
 
@@ -713,7 +739,8 @@
                     
                     if (detectionMode === 'ai') {
                         const now = Date.now();
-                        if (now - lastAiCallTime >= AI_CALL_INTERVAL) {
+                        const currentInterval = Math.max(AI_CALL_INTERVAL, aiRetryDelay);
+                        if (now - lastAiCallTime >= currentInterval) {
                             lastAiCallTime = now;
                             const imageData = captureFrame();
                             detectWithAi(imageData).then(prediction => {
@@ -727,6 +754,10 @@
                                     displayPrediction(null);
                                 }
                             });
+                        } else {
+                            if (lastAiResult) {
+                                displayPrediction(lastAiResult);
+                            }
                         }
                     } else {
                         // KNN mode
