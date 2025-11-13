@@ -424,6 +424,7 @@
 
         async function detectWithAi(imageData) {
             try {
+                console.log('[v0] Calling AI vision API...');
                 const response = await fetch('/api/detect-vision', {
                     method: 'POST',
                     headers: {
@@ -434,15 +435,21 @@
                     })
                 });
                 
+                console.log('[v0] AI API response status:', response.status);
+                
                 if (!response.ok) {
                     const error = await response.json();
-                    throw new Error(error.error || 'AI detection failed');
+                    console.error('[v0] AI API error response:', error);
+                    displayPrediction({ label: 'Error: ' + (error.error || 'AI detection failed'), confidence: 0 });
+                    return null;
                 }
                 
                 const result = await response.json();
+                console.log('[v0] AI detection result:', result);
                 return result;
             } catch (error) {
                 console.error('[v0] AI detection error:', error);
+                displayPrediction({ label: 'Network Error: ' + error.message, confidence: 0 });
                 return null;
             }
         }
@@ -706,16 +713,15 @@
                             lastAiCallTime = now;
                             const imageData = captureFrame();
                             detectWithAi(imageData).then(prediction => {
-                                if (prediction && prediction.label !== 'none') {
+                                if (prediction && prediction.label && prediction.label !== 'none') {
                                     displayPrediction(prediction);
                                     currentPrediction = prediction;
                                     autoSpeak(prediction);
+                                } else if (!prediction) {
+                                    // Error already displayed in detectWithAi
                                 } else {
                                     displayPrediction(null);
                                 }
-                            }).catch(error => {
-                                console.error('[v0] AI detection failed:', error);
-                                displayPrediction({ label: 'AI Error', confidence: 0 });
                             });
                         }
                     } else {

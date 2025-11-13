@@ -180,15 +180,17 @@ def detect_vision():
         data = request.json
         image_data = data.get('image')
         
-        # Read API key from environment variables
         api_key = os.environ.get('AI_API_KEY')
         provider = os.environ.get('AI_PROVIDER', 'openai').lower()
         
+        print(f"[DEBUG] API Key configured: {bool(api_key)}")
+        print(f"[DEBUG] Provider: {provider}")
+        
         if not image_data:
-            return jsonify({"error": "Missing image"}), 400
+            return jsonify({"error": "Missing image data"}), 400
             
         if not api_key:
-            return jsonify({"error": "AI_API_KEY not configured on server"}), 500
+            return jsonify({"error": "AI_API_KEY environment variable not configured. Please set AI_API_KEY in your environment."}), 500
         
         # Remove data URL prefix if present
         if ',' in image_data:
@@ -202,17 +204,22 @@ def detect_vision():
         elif provider == 'groq':
             response = call_groq_vision(image_data, api_key)
         else:
-            return jsonify({"error": f"Unsupported provider: {provider}"}), 400
+            return jsonify({"error": f"Unsupported AI provider: {provider}"}), 400
         
         return jsonify(response)
     
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[ERROR] AI detection failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"AI detection failed: {str(e)}"}), 500
 
 
 def call_openai_vision(image_base64, api_key):
     """Call OpenAI GPT-4 Vision API"""
     import requests
+    
+    print("[DEBUG] Calling OpenAI Vision API...")
     
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
@@ -242,17 +249,25 @@ def call_openai_vision(image_base64, api_key):
         "max_tokens": 50
     }
     
-    response = requests.post(url, headers=headers, json=payload, timeout=30)
-    response.raise_for_status()
-    result = response.json()
-    
-    label = result['choices'][0]['message']['content'].strip().lower()
-    
-    return {
-        "label": label,
-        "confidence": 0.95,
-        "provider": "openai"
-    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        print(f"[DEBUG] OpenAI response status: {response.status_code}")
+        response.raise_for_status()
+        result = response.json()
+        
+        label = result['choices'][0]['message']['content'].strip().lower()
+        print(f"[DEBUG] OpenAI detected: {label}")
+        
+        return {
+            "label": label,
+            "confidence": 0.95,
+            "provider": "openai"
+        }
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] OpenAI API request failed: {str(e)}")
+        if hasattr(e.response, 'text'):
+            print(f"[ERROR] Response body: {e.response.text}")
+        raise
 
 
 def call_anthropic_vision(image_base64, api_key):
