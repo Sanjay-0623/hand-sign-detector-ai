@@ -26,9 +26,17 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_ANON_KEY")
-supabase: Client = create_client(supabase_url, supabase_key)
 
-print(f"[INFO] Supabase client initialized")
+try:
+    if not supabase_url or not supabase_key:
+        print("[ERROR] Supabase environment variables not configured")
+        supabase = None
+    else:
+        supabase: Client = create_client(supabase_url, supabase_key)
+        print(f"[INFO] Supabase client initialized")
+except Exception as e:
+    print(f"[ERROR] Failed to initialize Supabase: {str(e)}")
+    supabase = None
 
 # Now using Supabase database
 
@@ -49,8 +57,13 @@ def login_required(f):
 
 def get_current_user():
     """Get current logged-in user"""
-    if 'user_id' in session:
-        return supabase.table('users').select('*').eq('id', session['user_id']).execute().data[0]
+    if 'user_id' in session and supabase:
+        try:
+            result = supabase.table('users').select('*').eq('id', session['user_id']).execute()
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+        except Exception as e:
+            print(f"[ERROR] Failed to get current user: {str(e)}")
     return None
 
 
@@ -74,6 +87,10 @@ def login():
 
         if not username or not password:
             return render_template('login.html', error='Username and password required')
+
+        # Supabase null check
+        if not supabase:
+            return render_template('login.html', error='Database not configured. Please contact administrator.')
 
         try:
             response = supabase.table('users').select('*').eq('username', username).execute()
@@ -118,6 +135,10 @@ def register():
 
         if password != confirm_password:
             return render_template('register.html', error='Passwords do not match')
+
+        # Supabase null check
+        if not supabase:
+            return render_template('register.html', error='Database not configured. Please contact administrator.')
 
         try:
             existing_user = supabase.table('users').select('*').eq('username', username).execute()

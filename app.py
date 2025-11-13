@@ -37,11 +37,24 @@ from supabase import create_client, Client
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
+MIN_API_INTERVAL = 10  # Minimum seconds between API calls
+AI_CACHE_DURATION = 10  # Cache results for 10 seconds
+LAST_API_CALL = {}  # Track last API call time per user
+AI_CACHE = {}  # Cache AI detection results
+
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_ANON_KEY")
-supabase: Client = create_client(supabase_url, supabase_key)
 
-print(f"[INFO] Supabase client initialized with URL: {supabase_url}")
+try:
+    if not supabase_url or not supabase_key:
+        print("[ERROR] Supabase environment variables not configured")
+        supabase = None
+    else:
+        supabase: Client = create_client(supabase_url, supabase_key)
+        print(f"[INFO] Supabase client initialized with URL: {supabase_url}")
+except Exception as e:
+    print(f"[ERROR] Failed to initialize Supabase: {str(e)}")
+    supabase = None
 
 # ===== AUTHENTICATION HELPERS =====
 def login_required(f):
@@ -56,8 +69,13 @@ def login_required(f):
 
 def get_current_user():
     """Get current logged-in user"""
-    if 'user_id' in session:
-        return supabase.table('users').select('*').eq('id', session['user_id']).execute().data[0]
+    if 'user_id' in session and supabase:
+        try:
+            result = supabase.table('users').select('*').eq('id', session['user_id']).execute()
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+        except Exception as e:
+            print(f"[ERROR] Failed to get current user: {str(e)}")
     return None
 
 
@@ -81,6 +99,9 @@ def login():
 
         if not username or not password:
             return render_template('login.html', error='Username and password required')
+
+        if not supabase:
+            return render_template('login.html', error='Database not configured. Please contact administrator.')
 
         try:
             response = supabase.table('users').select('*').eq('username', username).execute()
@@ -123,6 +144,9 @@ def register():
 
         if password != confirm_password:
             return render_template('register.html', error='Passwords do not match')
+
+        if not supabase:
+            return render_template('register.html', error='Database not configured. Please contact administrator.')
 
         try:
             existing_user = supabase.table('users').select('*').eq('username', username).execute()
@@ -189,12 +213,19 @@ def health():
 def stats():
     """Return app statistics"""
     user = get_current_user()
+    total_users = 0
+    if supabase:
+        try:
+            total_users = len(supabase.table('users').select('*').execute().data)
+        except Exception as e:
+            print(f"[ERROR] Failed to get user count: {str(e)}")
+    
     return jsonify({
         "status": "running",
         "timestamp": datetime.now().isoformat(),
         "user": session.get('username'),
         "authenticated": 'user_id' in session,
-        "total_users": len(supabase.table('users').select('*').execute().data)
+        "total_users": total_users
     })
 
 
