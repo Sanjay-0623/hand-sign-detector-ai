@@ -43,7 +43,7 @@ LAST_API_CALL = {}  # Track last API call time per user
 AI_CACHE = {}  # Cache AI detection results
 
 supabase_url = os.environ.get("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_ANON_KEY")
+supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 try:
     if not supabase_url or not supabase_key:

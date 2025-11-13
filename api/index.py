@@ -25,7 +25,7 @@ app = Flask(__name__, template_folder='../templates', static_folder='../static')
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
 supabase_url = os.environ.get("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_ANON_KEY")
+supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 try:
     if not supabase_url or not supabase_key:
