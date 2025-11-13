@@ -417,9 +417,13 @@
 
         function setMode(mode) {
             detectionMode = mode;
-            document.getElementById('mode-knn').style.background = mode === 'knn' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
-            document.getElementById('mode-ai').style.background = mode === 'ai' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
-            document.getElementById('ai-info').style.display = mode === 'ai' ? 'block' : 'none';
+            const knnBtn = document.getElementById('mode-knn');
+            const aiBtn = document.getElementById('mode-ai');
+            const aiInfo = document.getElementById('ai-info');
+            
+            if (knnBtn) knnBtn.style.background = mode === 'knn' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
+            if (aiBtn) aiBtn.style.background = mode === 'ai' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
+            if (aiInfo) aiInfo.style.display = mode === 'ai' ? 'block' : 'none';
         }
 
         async function detectWithAi(imageData) {
@@ -752,6 +756,11 @@
 
         function displayPrediction(prediction) {
             const box = document.getElementById('prediction-box');
+            if (!box) {
+                console.error('[v0] Prediction box element not found');
+                return;
+            }
+            
             if (prediction) {
                 const conf = (prediction.confidence * 100).toFixed(1);
                 box.innerHTML = `
@@ -759,14 +768,16 @@
                     <div class="prediction-confidence">Confidence: ${conf}%</div>
                     <div class="prediction-text">Detected: <strong>${prediction.label.toUpperCase()}</strong></div>
                 `;
-                document.getElementById('speak-btn').style.display = 'block';
+                const speakBtn = document.getElementById('speak-btn');
+                if (speakBtn) speakBtn.style.display = 'block';
             } else {
                 box.innerHTML = `
                     <div class="prediction-label no-prediction">Awaiting hand...</div>
                     <div class="prediction-confidence">Confidence: —</div>
                     <div class="prediction-text"></div>
                 `;
-                document.getElementById('speak-btn').style.display = 'none';
+                const speakBtn = document.getElementById('speak-btn');
+                if (speakBtn) speakBtn.style.display = 'none';
             }
         }
 

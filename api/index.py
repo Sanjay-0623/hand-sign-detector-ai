@@ -26,8 +26,29 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
-# Simple in-memory user store (in production, use a database)
-users = {}
+USERS_FILE = '/tmp/users.json'  # Vercel uses /tmp for temporary storage
+
+def load_users():
+    """Load users from file"""
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[ERROR] Failed to load users: {e}")
+            return {}
+    return {}
+
+def save_users(users_data):
+    """Save users to file"""
+    try:
+        with open(USERS_FILE, 'w') as f:
+            json.dump(users_data, f, indent=2)
+    except Exception as e:
+        print(f"[ERROR] Failed to save users: {e}")
+
+# Load existing users
+users = load_users()
 user_sessions = {}
 api_keys = {}
 
@@ -104,6 +125,8 @@ def register():
             'username': username,
             'password': password
         }
+        save_users(users)
+        print(f"[INFO] New user registered: {username}")
 
         session['user_id'] = username
         session['username'] = username

@@ -30,12 +30,38 @@ from functools import wraps
 from datetime import datetime
 import os
 import secrets
+import json
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
+USERS_FILE = 'users.json'
+
+def load_users():
+    """Load users from file"""
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[ERROR] Failed to load users: {e}")
+            return {}
+    return {}
+
+def save_users(users_data):
+    """Save users to file"""
+    try:
+        with open(USERS_FILE, 'w') as f:
+            json.dump(users_data, f, indent=2)
+    except Exception as e:
+        print(f"[ERROR] Failed to save users: {e}")
+
+# Load existing users on startup
+users = load_users()
+print(f"[INFO] Loaded {len(users)} users from storage")
+
 # Simple in-memory user store (in production, use a database)
-users = {}
+# users = {}
 
 
 # ===== AUTHENTICATION HELPERS =====
@@ -107,12 +133,13 @@ def register():
         if username in users:
             return render_template('register.html', error='Username already exists')
 
-        # Create new user
         users[username] = {
             'username': username,
             'password': password,
             'dataset': {}
         }
+        save_users(users)
+        print(f"[INFO] New user registered: {username}")
 
         session['user_id'] = username
         session['username'] = username
