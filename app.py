@@ -32,47 +32,16 @@ import os
 import secrets
 import json
 import time
+from supabase import create_client, Client
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
-USERS_FILE = 'users.json'
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_ANON_KEY")
+supabase: Client = create_client(supabase_url, supabase_key)
 
-AI_CACHE = {}
-AI_CACHE_DURATION = 10  # Cache results for 10 seconds
-LAST_API_CALL = {}
-MIN_API_INTERVAL = 10  # Minimum 10 seconds between API calls per user
-
-def load_users():
-    """Load users from file"""
-    if os.path.exists(USERS_FILE):
-        try:
-            with open(USERS_FILE, 'r') as f:
-                data = json.load(f)
-                print(f"[INFO] Loaded {len(data)} users from {USERS_FILE}: {list(data.keys())}")
-                return data
-        except Exception as e:
-            print(f"[ERROR] Failed to load users: {e}")
-            return {}
-    print(f"[INFO] No users file found at {USERS_FILE}, starting with empty user list")
-    return {}
-
-def save_users(users_data):
-    """Save users to file"""
-    try:
-        with open(USERS_FILE, 'w') as f:
-            json.dump(users_data, f, indent=2)
-        print(f"[INFO] Saved {len(users_data)} users to {USERS_FILE}: {list(users_data.keys())}")
-    except Exception as e:
-        print(f"[ERROR] Failed to save users: {e}")
-
-# Load existing users on startup
-users = load_users()
-print(f"[INFO] Loaded {len(users)} users from storage")
-
-# Simple in-memory user store (in production, use a database)
-# users = {}
-
+print(f"[INFO] Supabase client initialized with URL: {supabase_url}")
 
 # ===== AUTHENTICATION HELPERS =====
 def login_required(f):
@@ -88,7 +57,7 @@ def login_required(f):
 def get_current_user():
     """Get current logged-in user"""
     if 'user_id' in session:
-        return users.get(session['user_id'])
+        return supabase.table('users').select('*').eq('id', session['user_id']).execute().data[0]
     return None
 
 
@@ -105,32 +74,36 @@ def index():
 def login():
     """Login page"""
     if request.method == 'POST':
-        global users
-        users = load_users()
-        
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
 
         print(f"[DEBUG] Login attempt for username: {username}")
-        print(f"[DEBUG] Available users: {list(users.keys())}")
 
         if not username or not password:
             return render_template('login.html', error='Username and password required')
 
-        # Check if user exists
-        if username not in users:
-            print(f"[ERROR] User {username} not found in database")
-            return render_template('login.html', error='User not found. Please register first.')
-
-        # Verify password
-        if users[username]['password'] == password:
-            session['user_id'] = username
-            session['username'] = username
-            print(f"[INFO] User {username} logged in successfully")
-            return redirect(url_for('menu'))
-        else:
-            print(f"[ERROR] Invalid password for user {username}")
-            return render_template('login.html', error='Invalid credentials')
+        try:
+            response = supabase.table('users').select('*').eq('username', username).execute()
+            
+            if not response.data or len(response.data) == 0:
+                print(f"[ERROR] User {username} not found in database")
+                return render_template('login.html', error='User not found. Please register first.')
+            
+            user = response.data[0]
+            
+            # Verify password
+            if user['password'] == password:
+                session['user_id'] = str(user['id'])
+                session['username'] = username
+                print(f"[INFO] User {username} logged in successfully")
+                return redirect(url_for('menu'))
+            else:
+                print(f"[ERROR] Invalid password for user {username}")
+                return render_template('login.html', error='Invalid credentials')
+        
+        except Exception as e:
+            print(f"[ERROR] Database error during login: {str(e)}")
+            return render_template('login.html', error='Login failed. Please try again.')
 
     return render_template('login.html')
 
@@ -139,9 +112,6 @@ def login():
 def register():
     """Register new user"""
     if request.method == 'POST':
-        global users
-        users = load_users()
-        
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
         confirm_password = request.form.get('confirm_password', '').strip()
@@ -154,19 +124,25 @@ def register():
         if password != confirm_password:
             return render_template('register.html', error='Passwords do not match')
 
-        if username in users:
-            print(f"[ERROR] Username {username} already exists")
-            return render_template('register.html', error='Username already exists')
-
-        users[username] = {
-            'username': username,
-            'password': password,
-            'dataset': {}
-        }
-        save_users(users)
-        print(f"[SUCCESS] New user registered: {username}")
-
-        return redirect(url_for('login'))
+        try:
+            existing_user = supabase.table('users').select('*').eq('username', username).execute()
+            
+            if existing_user.data and len(existing_user.data) > 0:
+                print(f"[ERROR] Username {username} already exists")
+                return render_template('register.html', error='Username already exists')
+            
+            # Insert new user into database
+            new_user = supabase.table('users').insert({
+                'username': username,
+                'password': password
+            }).execute()
+            
+            print(f"[SUCCESS] New user registered: {username}")
+            return redirect(url_for('login'))
+        
+        except Exception as e:
+            print(f"[ERROR] Database error during registration: {str(e)}")
+            return render_template('register.html', error='Registration failed. Please try again.')
 
     return render_template('register.html')
 
@@ -218,7 +194,7 @@ def stats():
         "timestamp": datetime.now().isoformat(),
         "user": session.get('username'),
         "authenticated": 'user_id' in session,
-        "total_users": len(users)
+        "total_users": len(supabase.table('users').select('*').execute().data)
     })
 
 
