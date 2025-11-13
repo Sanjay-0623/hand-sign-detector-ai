@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Menu - Hand Sign Detector</title>
+    <title>Dashboard - Hand Sign Detector</title>
     <style>
         * {
             margin: 0;
@@ -12,75 +12,108 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
             background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
             color: #e2e8f0;
             min-height: 100vh;
-            padding: 20px;
         }
 
-        .container {
-            max-width: 900px;
+        /* Added professional navigation bar */
+        nav {
+            background: rgba(15, 23, 42, 0.9);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+            padding: 1rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        nav .container {
+            max-width: 1200px;
             margin: 0 auto;
-        }
-
-        header {
-            text-align: center;
-            margin-bottom: 50px;
+            padding: 0 2rem;
             display: flex;
-            flex-direction: column;
+            justify-content: space-between;
             align-items: center;
-            gap: 10px;
         }
 
-        header h1 {
-            font-size: 2.5rem;
+        nav .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
             background: linear-gradient(135deg, #3b82f6, #06b6d4);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        nav .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        nav .username {
+            color: #cbd5e1;
+            font-weight: 500;
+        }
+
+        nav .logout-btn {
+            background: rgba(239, 68, 68, 0.1);
+            color: #fca5a5;
+            padding: 0.5rem 1.25rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        nav .logout-btn:hover {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: #ef4444;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+        }
+
+        /* Modern header section */
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 0.75rem;
+            color: #f1f5f9;
         }
 
         header p {
             color: #94a3b8;
-            font-size: 0.95rem;
+            font-size: 1.1rem;
         }
 
-        .user-info {
-            color: #cbd5e1;
-            font-size: 0.9rem;
-            margin-bottom: 20px;
-        }
-
-        .user-info a {
-            color: #ef4444;
-            text-decoration: none;
-            font-weight: 500;
-            margin-left: 10px;
-        }
-
-        .user-info a:hover {
-            text-decoration: underline;
-        }
-
+        /* Enhanced grid layout with better cards */
         .menu-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
-            margin-bottom: 40px;
-        }
-
-        @media (max-width: 768px) {
-            .menu-grid {
-                grid-template-columns: 1fr;
-            }
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
         }
 
         .menu-card {
-            background: rgba(30, 41, 59, 0.8);
+            background: rgba(30, 41, 59, 0.6);
             border: 1px solid rgba(148, 163, 184, 0.2);
-            border-radius: 12px;
-            padding: 40px;
+            border-radius: 16px;
+            padding: 2.5rem;
             backdrop-filter: blur(10px);
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
             text-align: center;
@@ -90,37 +123,40 @@
             color: inherit;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 1.5rem;
         }
 
         .menu-card:hover {
             border-color: rgba(59, 130, 246, 0.5);
-            box-shadow: 0 8px 16px rgba(59, 130, 246, 0.2);
-            transform: translateY(-4px);
+            box-shadow: 0 12px 30px rgba(59, 130, 246, 0.3);
+            transform: translateY(-8px);
+            background: rgba(30, 41, 59, 0.8);
         }
 
         .menu-icon {
             font-size: 4rem;
+            line-height: 1;
         }
 
         .menu-card h2 {
-            font-size: 1.8rem;
+            font-size: 2rem;
             color: #3b82f6;
+            font-weight: 700;
         }
 
         .menu-card p {
             color: #94a3b8;
             line-height: 1.6;
-            margin: 0;
+            font-size: 1rem;
         }
 
         .menu-button {
-            padding: 12px 24px;
+            padding: 1rem 2rem;
             background: #3b82f6;
             color: white;
             border: none;
-            border-radius: 6px;
-            font-size: 0.95rem;
+            border-radius: 8px;
+            font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s;
@@ -130,59 +166,101 @@
         .menu-button:hover {
             background: #2563eb;
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
         }
 
         .menu-button:active {
             transform: translateY(0);
         }
 
+        /* Enhanced info box with better styling */
         .info-box {
             background: rgba(59, 130, 246, 0.1);
             border: 1px solid rgba(59, 130, 246, 0.3);
-            border-radius: 8px;
-            padding: 20px;
+            border-radius: 12px;
+            padding: 2rem;
             color: #cbd5e1;
-            text-align: center;
-            line-height: 1.6;
+            line-height: 1.8;
+        }
+
+        .info-box strong {
+            color: #3b82f6;
+            font-size: 1.1rem;
+        }
+
+        .info-box ol {
+            margin-top: 1rem;
+            margin-left: 1.5rem;
+            text-align: left;
+        }
+
+        .info-box li {
+            margin-bottom: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .menu-grid {
+                grid-template-columns: 1fr;
+            }
+
+            header h1 {
+                font-size: 2rem;
+            }
+
+            nav .container {
+                flex-direction: column;
+                gap: 1rem;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- Professional navigation bar -->
+    <nav>
+        <div class="container">
+            <div class="logo">
+                <span>✋</span>
+                Hand Sign Detector
+            </div>
+            <div class="user-info">
+                <span class="username">{{ username }}</span>
+                <a href="/logout" class="logout-btn">Logout</a>
+            </div>
+        </div>
+    </nav>
+
     <div class="container">
+        <!-- Enhanced header section -->
         <header>
-            <h1>✋ Hand Sign Detector</h1>
-            <p>Choose an action to get started</p>
+            <h1>Welcome to Your Dashboard</h1>
+            <p>Choose a mode to get started with hand sign detection</p>
         </header>
 
-        <div class="user-info">
-            Welcome, <strong>{{ username }}</strong>
-            <a href="/logout">Logout</a>
-        </div>
-
+        <!-- Improved grid layout -->
         <div class="menu-grid">
-            <!-- DETECT Card -->
             <a href="/detect" class="menu-card">
                 <div class="menu-icon">🎥</div>
                 <h2>Detect</h2>
-                <p>Use your trained model to detect hand signs in real-time from your camera</p>
+                <p>Use your trained model or AI vision to detect hand signs in real-time from your camera</p>
                 <button class="menu-button">Start Detecting</button>
             </a>
 
-            <!-- TRAIN Card -->
             <a href="/train" class="menu-card">
                 <div class="menu-icon">📚</div>
                 <h2>Train</h2>
-                <p>Record and train new hand sign gestures for your personal dataset</p>
+                <p>Record and train new hand sign gestures to build your personal recognition dataset</p>
                 <button class="menu-button">Start Training</button>
             </a>
         </div>
 
+        <!-- Enhanced info box with ordered list -->
         <div class="info-box">
-            <strong>How it works:</strong><br>
-            1. Use <strong>Train</strong> to record gesture samples and build your dataset<br>
-            2. Use <strong>Detect</strong> to recognize gestures in real-time<br>
-            3. Export your trained model to share or backup
+            <strong>Quick Start Guide</strong>
+            <ol>
+                <li><strong>Train Mode:</strong> Record gesture samples and build your custom dataset</li>
+                <li><strong>Detect Mode:</strong> Choose between KNN (your trained model) or AI Vision (instant recognition)</li>
+                <li><strong>Export & Share:</strong> Download your trained models for backup or deployment</li>
+            </ol>
         </div>
     </div>
 </body>

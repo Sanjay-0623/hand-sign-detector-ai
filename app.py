@@ -82,10 +82,10 @@ def get_current_user():
 # ===== ROUTES =====
 @app.route('/')
 def index():
-    """Root - redirect to login or menu"""
+    """Root - show landing page or redirect to menu if logged in"""
     if 'user_id' in session:
         return redirect(url_for('menu'))
-    return redirect(url_for('login'))
+    return render_template('index.html')
 
 
 @app.route('/login', methods=['GET', 'POST'])
