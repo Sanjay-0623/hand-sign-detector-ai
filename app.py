@@ -166,9 +166,7 @@ def register():
         save_users(users)
         print(f"[SUCCESS] New user registered: {username}")
 
-        session['user_id'] = username
-        session['username'] = username
-        return redirect(url_for('menu'))
+        return redirect(url_for('login'))
 
     return render_template('register.html')
 
