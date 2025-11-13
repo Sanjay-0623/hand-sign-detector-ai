@@ -31,11 +31,17 @@ from datetime import datetime
 import os
 import secrets
 import json
+import time
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
 USERS_FILE = 'users.json'
+
+AI_CACHE = {}
+AI_CACHE_DURATION = 10  # Cache results for 10 seconds
+LAST_API_CALL = {}
+MIN_API_INTERVAL = 10  # Minimum 10 seconds between API calls per user
 
 def load_users():
     """Load users from file"""
@@ -202,8 +208,9 @@ def stats():
 @app.route('/api/detect-vision', methods=['POST'])
 @login_required
 def detect_vision():
-    """Use AI vision model to detect hand signs"""
+    """Use AI vision model to detect hand signs with caching and rate limiting"""
     try:
+        username = session.get('username')
         data = request.json
         image_data = data.get('image')
         
@@ -212,16 +219,35 @@ def detect_vision():
         
         print(f"[DEBUG] API Key configured: {bool(api_key)}")
         print(f"[DEBUG] Provider: {provider}")
+        print(f"[DEBUG] User: {username}")
         
         if not image_data:
             return jsonify({"error": "Missing image data"}), 400
             
         if not api_key:
-            return jsonify({"error": "AI_API_KEY environment variable not configured. Please set AI_API_KEY in your environment."}), 500
+            return jsonify({"error": "AI_API_KEY environment variable not configured. Please add your OpenAI API key in Vercel project settings."}), 500
+        
+        current_time = time.time()
+        if username in LAST_API_CALL:
+            time_since_last = current_time - LAST_API_CALL[username]
+            if time_since_last < MIN_API_INTERVAL:
+                wait_time = int(MIN_API_INTERVAL - time_since_last)
+                return jsonify({
+                    "error": f"Please wait {wait_time} seconds before making another AI detection request to avoid rate limiting."
+                }), 429
+        
+        cache_key = f"{username}_{hash(image_data[:100])}"  # Use partial hash for cache key
+        if cache_key in AI_CACHE:
+            cached_result, cached_time = AI_CACHE[cache_key]
+            if current_time - cached_time < AI_CACHE_DURATION:
+                print(f"[DEBUG] Returning cached result for {username}")
+                return jsonify(cached_result)
         
         # Remove data URL prefix if present
         if ',' in image_data:
             image_data = image_data.split(',')[1]
+        
+        LAST_API_CALL[username] = current_time
         
         # Call appropriate API
         if provider == 'openai':
@@ -233,13 +259,30 @@ def detect_vision():
         else:
             return jsonify({"error": f"Unsupported AI provider: {provider}"}), 400
         
+        AI_CACHE[cache_key] = (response, current_time)
+        
+        if len(AI_CACHE) > 100:
+            cutoff_time = current_time - AI_CACHE_DURATION
+            AI_CACHE.clear()  # Simple cleanup
+        
         return jsonify(response)
     
     except Exception as e:
         print(f"[ERROR] AI detection failed: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": f"AI detection failed: {str(e)}"}), 500
+        
+        error_msg = str(e)
+        if '429' in error_msg or 'Too Many Requests' in error_msg:
+            return jsonify({
+                "error": "OpenAI rate limit exceeded. Please wait 30-60 seconds before trying again. Consider using KNN mode instead for real-time detection."
+            }), 429
+        elif '401' in error_msg or 'Unauthorized' in error_msg:
+            return jsonify({
+                "error": "Invalid API key. Please check your AI_API_KEY environment variable."
+            }), 401
+        else:
+            return jsonify({"error": f"AI detection failed: {error_msg}"}), 500
 
 
 def call_openai_vision(image_base64, api_key):

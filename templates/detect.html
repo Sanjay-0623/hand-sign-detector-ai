@@ -521,8 +521,14 @@
                 detectNowBtn.textContent = '⏳ Detecting...';
             }
             
+            displayPrediction({ label: 'Analyzing with AI...', confidence: 0 });
+            
             try {
                 const imageData = captureFrame();
+                
+                console.log('[v0] Captured frame, calling AI API...');
+                console.log('[v0] Image data length:', imageData.length);
+                
                 const prediction = await detectWithAi(imageData);
                 
                 if (prediction && prediction.label && prediction.label !== 'none') {
@@ -532,10 +538,13 @@
                     autoSpeak(prediction);
                 } else if (!prediction) {
                     // Error already displayed in detectWithAi
-                    displayPrediction({ label: 'No hand detected or AI error', confidence: 0 });
+                    console.error('[v0] AI detection returned null');
                 } else {
                     displayPrediction({ label: 'No hand detected', confidence: 0 });
                 }
+            } catch (error) {
+                console.error('[v0] detectNow error:', error);
+                displayPrediction({ label: 'Error: ' + error.message, confidence: 0 });
             } finally {
                 isDetecting = false;
                 if (detectNowBtn) {
@@ -565,7 +574,7 @@
                     console.error('[v0] AI API error response:', error);
                     
                     displayPrediction({ 
-                        label: 'Error: ' + (error.error || 'AI detection failed'), 
+                        label: error.error || 'AI detection failed', 
                         confidence: 0 
                     });
                     return null;
