@@ -138,6 +138,20 @@
             border: 1px solid rgba(239, 68, 68, 0.3);
             color: #fca5a5;
         }
+
+        /* Added help link style for database setup */
+        .alert .help-link {
+            display: block;
+            margin-top: 8px;
+            color: #60a5fa;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .alert .help-link:hover {
+            color: #93c5fd;
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -149,7 +163,13 @@
             </header>
 
             {% if error %}
-            <div class="alert">{{ error }}</div>
+            <!-- Added helpful link to setup page when database error occurs -->
+            <div class="alert">
+                {{ error }}
+                {% if 'Database not configured' in error %}
+                <a href="/setup-database-page" class="help-link">→ Click here to set up the database</a>
+                {% endif %}
+            </div>
             {% endif %}
 
             <form method="POST">
