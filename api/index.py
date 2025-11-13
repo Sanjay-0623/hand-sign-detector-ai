@@ -33,17 +33,22 @@ def load_users():
     if os.path.exists(USERS_FILE):
         try:
             with open(USERS_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                print(f"[INFO] Loaded {len(data)} users from {USERS_FILE}: {list(data.keys())}")
+                return data
         except Exception as e:
             print(f"[ERROR] Failed to load users: {e}")
             return {}
+    print(f"[INFO] No users file found at {USERS_FILE}, starting with empty user list")
     return {}
 
 def save_users(users_data):
     """Save users to file"""
     try:
+        os.makedirs(os.path.dirname(USERS_FILE), exist_ok=True)
         with open(USERS_FILE, 'w') as f:
             json.dump(users_data, f, indent=2)
+        print(f"[INFO] Saved {len(users_data)} users to {USERS_FILE}: {list(users_data.keys())}")
     except Exception as e:
         print(f"[ERROR] Failed to save users: {e}")
 
@@ -84,21 +89,30 @@ def index():
 def login():
     """Login page"""
     if request.method == 'POST':
+        global users
+        users = load_users()
+        
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
+
+        print(f"[DEBUG] Login attempt for username: {username}")
+        print(f"[DEBUG] Available users: {list(users.keys())}")
 
         if not username or not password:
             return render_template('login.html', error='Username and password required')
 
         if username not in users:
+            print(f"[ERROR] User {username} not found")
             return render_template('login.html', error='User not found. Please register first.')
 
         # Verify password
         if users[username]['password'] == password:
             session['user_id'] = username
             session['username'] = username
+            print(f"[INFO] User {username} logged in successfully")
             return redirect(url_for('menu'))
         else:
+            print(f"[ERROR] Invalid password for user {username}")
             return render_template('login.html', error='Invalid password')
 
     return render_template('login.html')
@@ -108,9 +122,14 @@ def login():
 def register():
     """Register new user"""
     if request.method == 'POST':
+        global users
+        users = load_users()
+        
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '').strip()
         confirm_password = request.form.get('confirm_password', '').strip()
+
+        print(f"[DEBUG] Registration attempt for username: {username}")
 
         if not username or not password:
             return render_template('register.html', error='Username and password required')
@@ -119,6 +138,7 @@ def register():
             return render_template('register.html', error='Passwords do not match')
 
         if username in users:
+            print(f"[ERROR] Username {username} already exists")
             return render_template('register.html', error='Username already exists')
 
         users[username] = {
@@ -126,7 +146,7 @@ def register():
             'password': password
         }
         save_users(users)
-        print(f"[INFO] New user registered: {username}")
+        print(f"[SUCCESS] New user registered: {username}")
 
         session['user_id'] = username
         session['username'] = username
