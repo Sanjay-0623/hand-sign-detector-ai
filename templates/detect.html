@@ -260,6 +260,56 @@
             font-style: italic;
         }
 
+        .sentence-builder {
+            background: rgba(16, 185, 129, 0.1);
+            border: 2px solid #10b981;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .sentence-display {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 16px;
+            border-radius: 6px;
+            min-height: 60px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #10b981;
+            text-align: center;
+            word-wrap: break-word;
+            margin-bottom: 16px;
+        }
+
+        .sentence-controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .sentence-controls button {
+            flex: 1;
+            min-width: 120px;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+        }
+
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #d97706;
+        }
+
         .alert {
             padding: 12px;
             border-radius: 6px;
@@ -349,6 +399,18 @@
                         <div class="prediction-text" id="prediction-text" style="margin-top: 12px; color: #6ee7b7; font-size: 0.95rem;"></div>
                         <button class="btn-primary" id="speak-btn" onclick="speakPrediction()" style="width: 100%; margin-top: 8px; display: none;">🔊 Speak</button>
                     </div>
+
+                    <div class="sentence-builder">
+                        <h3 style="color: #10b981; margin-bottom: 12px;">Sentence Builder</h3>
+                        <div class="sentence-display" id="sentence-display">
+                            <span id="current-sentence" style="color: #10b981;">Start signing to build a sentence...</span>
+                        </div>
+                        <div class="sentence-controls">
+                            <button class="btn-success" onclick="addSpace()">Add Space</button>
+                            <button class="btn-warning" onclick="speakSentence()">🔊 Speak Sentence</button>
+                            <button class="btn-danger" onclick="clearSentence()">Clear</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -399,6 +461,12 @@
         let aiRetryDelay = 5000; // Start with 5s delay, will increase on errors
         let lastAiResult = null; // Cache last result
         let consecutiveErrors = 0; // Track errors for exponential backoff
+
+        // Sentence builder variables
+        let currentSentence = '';
+        let lastAddedChar = '';
+        let lastAddTime = 0;
+        const CHAR_ADD_DELAY = 2000; // Wait 2 seconds before adding same character again
 
         const HAND_CONNECTIONS = [
             [0, 1], [1, 2], [2, 3], [3, 4],
@@ -747,6 +815,7 @@
                                 if (prediction && prediction.label && prediction.label !== 'none') {
                                     displayPrediction(prediction);
                                     currentPrediction = prediction;
+                                    addToSentence(prediction.label);
                                     autoSpeak(prediction);
                                 } else if (!prediction) {
                                     // Error already displayed in detectWithAi
@@ -769,6 +838,7 @@
                             displayPrediction(prediction);
                             currentPrediction = prediction;
                             if (prediction) {
+                                addToSentence(prediction.label);
                                 autoSpeak(prediction);
                             }
                         } else {
@@ -928,6 +998,73 @@
                 ctx.arc(landmark.x * CANVAS_WIDTH, landmark.y * CANVAS_HEIGHT, radius, 0, 2 * Math.PI);
                 ctx.fill();
             });
+        }
+
+        function addToSentence(detectedChar) {
+            if (!detectedChar || detectedChar === 'none') return;
+            
+            const now = Date.now();
+            // Only add if it's a different character or enough time has passed
+            if (detectedChar === lastAddedChar && (now - lastAddTime) < CHAR_ADD_DELAY) {
+                return;
+            }
+            
+            // Extract single character if AI returns full word
+            let char = detectedChar.toLowerCase().trim();
+            // If it's a single letter, add it
+            if (char.length === 1) {
+                currentSentence += char;
+            } else {
+                // If AI returns a word/gesture name, try to extract first letter or use as-is
+                currentSentence += char + ' ';
+            }
+            
+            lastAddedChar = detectedChar;
+            lastAddTime = now;
+            
+            updateSentenceDisplay();
+        }
+
+        function addSpace() {
+            if (currentSentence && !currentSentence.endsWith(' ')) {
+                currentSentence += ' ';
+                updateSentenceDisplay();
+            }
+        }
+
+        function updateSentenceDisplay() {
+            const display = document.getElementById('current-sentence');
+            if (display) {
+                if (currentSentence.trim()) {
+                    display.textContent = currentSentence;
+                    display.style.color = '#10b981';
+                } else {
+                    display.textContent = 'Start signing to build a sentence...';
+                    display.style.color = '#64748b';
+                }
+            }
+        }
+
+        function speakSentence() {
+            if (!currentSentence.trim()) {
+                alert('No sentence to speak!');
+                return;
+            }
+            
+            const utterance = new SpeechSynthesisUtterance(currentSentence);
+            utterance.rate = 0.9;
+            utterance.volume = 1.0;
+            speechSynthesis.speak(utterance);
+        }
+
+        function clearSentence() {
+            if (currentSentence.trim() && !confirm('Clear the current sentence?')) {
+                return;
+            }
+            currentSentence = '';
+            lastAddedChar = '';
+            lastAddTime = 0;
+            updateSentenceDisplay();
         }
     </script>
 </body>

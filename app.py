@@ -262,7 +262,7 @@ def call_openai_vision(image_base64, api_key):
                 "content": [
                     {
                         "type": "text",
-                        "text": "Analyze this image and identify the hand sign or gesture being shown. Respond ONLY with the name of the gesture in lowercase (e.g., 'thumbs-up', 'peace', 'ok', 'pointing', 'fist', 'open-palm', etc.). If no clear hand sign is visible, respond with 'none'."
+                        "text": "Analyze this image and identify the hand sign being shown. If it's a letter of the alphabet (A-Z), respond with ONLY that single letter. If it's a gesture like thumbs-up, peace sign, ok sign, pointing, fist, or open palm, respond with the gesture name in lowercase. If no clear hand sign is visible, respond with 'none'. Be concise - respond with just one word or letter."
                     },
                     {
                         "type": "image_url",
@@ -273,7 +273,8 @@ def call_openai_vision(image_base64, api_key):
                 ]
             }
         ],
-        "max_tokens": 50
+        "max_tokens": 10,
+        "temperature": 0.3
     }
     
     try:
@@ -370,7 +371,7 @@ def call_groq_vision(image_base64, api_key):
                 "content": [
                     {
                         "type": "text",
-                        "text": "Identify the hand sign. Respond ONLY with the gesture name in lowercase (e.g., 'thumbs-up', 'peace'). If no hand is visible, say 'none'."
+                        "text": "Identify the hand sign. Respond ONLY with the gesture name in lowercase. If no hand is visible, say 'none'."
                     },
                     {
                         "type": "image_url",
