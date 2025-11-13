@@ -79,107 +79,6 @@ def get_current_user():
     return None
 
 
-# ===== DATABASE SETUP =====
-@app.route('/setup-database')
-def setup_database():
-    """Admin endpoint to create database tables automatically"""
-    if not supabase:
-        return jsonify({
-            "error": "Supabase not configured. Please check SUPABASE_URL and SUPABASE_ANON_KEY environment variables."
-        }), 500
-    
-    try:
-        # Check if users table already exists
-        try:
-            result = supabase.table('users').select('*').limit(1).execute()
-            return jsonify({
-                "status": "success",
-                "message": "Database is already configured! Users table exists.",
-                "table": "users",
-                "note": "You can now register and login."
-            })
-        except Exception as check_error:
-            # Table doesn't exist, need to create it
-            print(f"[INFO] Users table does not exist, attempting to create...")
-        
-        # Create users table using SQL
-        create_table_sql = """
-        CREATE TABLE IF NOT EXISTS users (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-        );
-        
-        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-        """
-        
-        # Execute SQL directly using Supabase's REST API
-        # Note: This requires proper permissions in Supabase
-        from supabase import create_client
-        
-        # Try to create table via RPC or direct SQL execution
-        # For Supabase, we need to use the service role key for DDL operations
-        service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-        
-        if not service_role_key:
-            return jsonify({
-                "error": "Setup requires SUPABASE_SERVICE_ROLE_KEY environment variable.",
-                "instructions": [
-                    "1. Go to your Supabase project dashboard",
-                    "2. Go to Project Settings > API",
-                    "3. Copy the 'service_role' key (not anon key)",
-                    "4. Add it as SUPABASE_SERVICE_ROLE_KEY environment variable",
-                    "5. Then visit this endpoint again"
-                ],
-                "alternative": "Or run the SQL script manually in Supabase SQL Editor:\n" + create_table_sql
-            }), 500
-        
-        # Create client with service role for admin operations
-        admin_client = create_client(supabase_url, service_role_key)
-        
-        # Try to create the table
-        # Note: Supabase Python client doesn't support direct SQL execution
-        # Users need to run SQL manually or use the service role via REST
-        
-        return jsonify({
-            "status": "instructions",
-            "message": "Please create the users table manually",
-            "instructions": [
-                "Go to your Supabase dashboard",
-                "Navigate to SQL Editor",
-                "Run this SQL script:"
-            ],
-            "sql": create_table_sql,
-            "note": "After running the SQL, the registration error will disappear."
-        })
-    
-    except Exception as e:
-        print(f"[ERROR] Database setup failed: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "error": f"Setup failed: {str(e)}",
-            "sql_script": """
-CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-            """,
-            "instructions": "Please run this SQL script manually in Supabase SQL Editor"
-        }), 500
-
-
-@app.route('/setup-database-page')
-def setup_database_page():
-    """Render the database setup page"""
-    return render_template('setup.html')
-
-
 # ===== ROUTES =====
 @app.route('/')
 def index():
@@ -576,7 +475,6 @@ if __name__ == '__main__':
 ║  - User Authentication                                    ║
 ║  - Train Mode (Record Gestures)                          ║
 ║  - Detect Mode (Recognize Gestures)                      ║
-║  - Database Setup Page                                    ║
 ║                                                           ║
 ║  Press Ctrl+C to stop                                     ║
 ╚═══════════════════════════════════════════════════════════╝

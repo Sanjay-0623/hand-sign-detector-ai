@@ -67,69 +67,6 @@ def get_current_user():
     return None
 
 
-# ===== DATABASE SETUP ENDPOINT =====
-@app.route('/setup-database')
-def setup_database():
-    """Admin endpoint to create database tables automatically"""
-    if not supabase:
-        return jsonify({
-            "error": "Supabase not configured. Please check SUPABASE_URL and SUPABASE_ANON_KEY environment variables."
-        }), 500
-    
-    try:
-        # Check if users table already exists
-        try:
-            result = supabase.table('users').select('*').limit(1).execute()
-            return jsonify({
-                "status": "success",
-                "message": "Database is already configured! Users table exists.",
-                "table": "users",
-                "note": "You can now register and login."
-            })
-        except Exception as check_error:
-            print(f"[INFO] Users table does not exist, need manual setup")
-        
-        # Return instructions for manual setup
-        create_table_sql = """
-CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-        """
-        
-        return jsonify({
-            "status": "instructions",
-            "message": "Please create the users table in Supabase",
-            "instructions": [
-                "1. Go to your Supabase dashboard: https://supabase.com/dashboard",
-                "2. Select your project",
-                "3. Click 'SQL Editor' in the left sidebar",
-                "4. Click 'New Query'",
-                "5. Paste and run the SQL script below"
-            ],
-            "sql": create_table_sql,
-            "note": "After running the SQL, refresh your registration page and the error will be gone."
-        })
-    
-    except Exception as e:
-        print(f"[ERROR] Database setup check failed: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "error": f"Setup check failed: {str(e)}"
-        }), 500
-
-
-@app.route('/setup-database-page')
-def setup_database_page():
-    """Render the database setup page"""
-    return render_template('setup.html')
-
-
 # ===== ROUTES =====
 @app.route('/')
 def index():

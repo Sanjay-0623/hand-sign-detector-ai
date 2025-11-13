@@ -163,12 +163,9 @@
             </header>
 
             {% if error %}
-            <!-- Added helpful link to setup page when database error occurs -->
+            <!-- Removed setup page link from error alert -->
             <div class="alert">
                 {{ error }}
-                {% if 'Database not configured' in error %}
-                <a href="/setup-database-page" class="help-link">→ Click here to set up the database</a>
-                {% endif %}
             </div>
             {% endif %}
 
