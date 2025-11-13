@@ -375,7 +375,7 @@
             </div>
             <div id="ai-info" style="display: none; margin-top: 16px; color: #94a3b8; font-size: 0.9rem;">
                 <p>ℹ️ AI Vision mode uses server-configured AI providers to detect hand signs automatically without training.</p>
-                <p style="margin-top: 8px;">The API key and provider are configured by the administrator in the server environment variables.</p>
+                <p style="margin-top: 8px;">Click "Detect Now" button below to analyze your current hand sign with AI.</p>
             </div>
         </div>
 
@@ -391,6 +391,8 @@
                     <div class="controls">
                         <button class="btn-primary" id="start-btn" onclick="startCamera()">Start Camera</button>
                         <button class="btn-danger" id="stop-btn" onclick="stopCamera()" disabled>Stop Camera</button>
+                        <!-- Added manual AI detection button -->
+                        <button class="btn-success" id="detect-now-btn" onclick="detectNow()" disabled style="display: none;">🔍 Detect Now (AI)</button>
                     </div>
 
                     <div class="prediction-box" id="prediction-box">
@@ -456,11 +458,9 @@
         let currentPrediction = null;
         let lastSpokenLabel = '';
         let detectionMode = 'knn'; // 'knn' or 'ai'
-        let lastAiCallTime = 0;
-        const AI_CALL_INTERVAL = 5000; // Call AI every 5 seconds to avoid rate limits
-        let aiRetryDelay = 5000; // Start with 5s delay, will increase on errors
+        let isDetecting = false;
         let lastAiResult = null; // Cache last result
-        let consecutiveErrors = 0; // Track errors for exponential backoff
+
 
         // Sentence builder variables
         let currentSentence = '';
@@ -491,10 +491,58 @@
             const knnBtn = document.getElementById('mode-knn');
             const aiBtn = document.getElementById('mode-ai');
             const aiInfo = document.getElementById('ai-info');
+            const detectNowBtn = document.getElementById('detect-now-btn');
             
             if (knnBtn) knnBtn.style.background = mode === 'knn' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
             if (aiBtn) aiBtn.style.background = mode === 'ai' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
             if (aiInfo) aiInfo.style.display = mode === 'ai' ? 'block' : 'none';
+            
+            if (detectNowBtn) {
+                detectNowBtn.style.display = mode === 'ai' ? 'inline-block' : 'none';
+                detectNowBtn.disabled = !cameraActive;
+            }
+        }
+
+        async function detectNow() {
+            if (isDetecting) {
+                console.log('[v0] Detection already in progress');
+                return;
+            }
+            
+            if (!cameraActive) {
+                alert('Please start the camera first');
+                return;
+            }
+            
+            isDetecting = true;
+            const detectNowBtn = document.getElementById('detect-now-btn');
+            if (detectNowBtn) {
+                detectNowBtn.disabled = true;
+                detectNowBtn.textContent = '⏳ Detecting...';
+            }
+            
+            try {
+                const imageData = captureFrame();
+                const prediction = await detectWithAi(imageData);
+                
+                if (prediction && prediction.label && prediction.label !== 'none') {
+                    displayPrediction(prediction);
+                    currentPrediction = prediction;
+                    addToSentence(prediction.label);
+                    autoSpeak(prediction);
+                } else if (!prediction) {
+                    // Error already displayed in detectWithAi
+                    displayPrediction({ label: 'No hand detected or AI error', confidence: 0 });
+                } else {
+                    displayPrediction({ label: 'No hand detected', confidence: 0 });
+                }
+            } finally {
+                isDetecting = false;
+                if (detectNowBtn) {
+                    detectNowBtn.disabled = false;
+                    detectNowBtn.textContent = '🔍 Detect Now (AI)';
+                }
+            }
         }
 
         async function detectWithAi(imageData) {
@@ -516,39 +564,22 @@
                     const error = await response.json();
                     console.error('[v0] AI API error response:', error);
                     
-                    if (response.status === 429) {
-                        consecutiveErrors++;
-                        aiRetryDelay = Math.min(30000, aiRetryDelay * 2); // Max 30 seconds
-                        console.log('[v0] Rate limited! Increasing delay to', aiRetryDelay, 'ms');
-                        displayPrediction({ 
-                            label: `Rate Limited - Retrying in ${aiRetryDelay/1000}s`, 
-                            confidence: 0 
-                        });
-                        // Return last successful result if available
-                        if (lastAiResult) {
-                            setTimeout(() => displayPrediction(lastAiResult), 3000);
-                        }
-                        return lastAiResult;
-                    }
-                    
-                    displayPrediction({ label: 'Error: ' + (error.error || 'AI detection failed'), confidence: 0 });
+                    displayPrediction({ 
+                        label: 'Error: ' + (error.error || 'AI detection failed'), 
+                        confidence: 0 
+                    });
                     return null;
                 }
                 
                 const result = await response.json();
                 console.log('[v0] AI detection result:', result);
-                
-                consecutiveErrors = 0;
-                aiRetryDelay = 5000; // Reset to 5 seconds
                 lastAiResult = result; // Cache successful result
                 
                 return result;
             } catch (error) {
                 console.error('[v0] AI detection error:', error);
-                consecutiveErrors++;
-                aiRetryDelay = Math.min(30000, aiRetryDelay * 1.5);
                 displayPrediction({ label: 'Network Error: ' + error.message, confidence: 0 });
-                return lastAiResult; // Return cached result
+                return null;
             }
         }
 
@@ -685,6 +716,10 @@
                 cameraActive = true;
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
+                const detectNowBtn = document.getElementById('detect-now-btn');
+                if (detectNowBtn && detectionMode === 'ai') {
+                    detectNowBtn.disabled = false;
+                }
                 updateStatusBadge(true);
                 console.log('[v0] Camera initialization complete, cameraActive =', cameraActive);
             } catch (error) {
@@ -704,6 +739,10 @@
                 cameraActive = false;
                 document.getElementById('start-btn').disabled = false;
                 document.getElementById('stop-btn').disabled = true;
+                const detectNowBtn = document.getElementById('detect-now-btn');
+                if (detectNowBtn) {
+                    detectNowBtn.disabled = true;
+                }
                 updateStatusBadge(false);
             } catch (error) {
                 console.error('Error stopping camera:', error);
@@ -805,31 +844,7 @@
                     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#3b82f6', lineWidth: 2 });
                     drawLandmarks(canvasCtx, landmarks, { color: '#06b6d4', lineWidth: 1 });
                     
-                    if (detectionMode === 'ai') {
-                        const now = Date.now();
-                        const currentInterval = Math.max(AI_CALL_INTERVAL, aiRetryDelay);
-                        if (now - lastAiCallTime >= currentInterval) {
-                            lastAiCallTime = now;
-                            const imageData = captureFrame();
-                            detectWithAi(imageData).then(prediction => {
-                                if (prediction && prediction.label && prediction.label !== 'none') {
-                                    displayPrediction(prediction);
-                                    currentPrediction = prediction;
-                                    addToSentence(prediction.label);
-                                    autoSpeak(prediction);
-                                } else if (!prediction) {
-                                    // Error already displayed in detectWithAi
-                                } else {
-                                    displayPrediction(null);
-                                }
-                            });
-                        } else {
-                            if (lastAiResult) {
-                                displayPrediction(lastAiResult);
-                            }
-                        }
-                    } else {
-                        // KNN mode
+                    if (detectionMode === 'knn') {
                         const normalized = normalizeLandmarks(landmarks);
                         if (normalized && normalized.length === 63) {
                             console.log('[v0] Normalized landmarks, running prediction...');
@@ -843,6 +858,13 @@
                             }
                         } else {
                             console.log('[v0] Normalization failed or invalid length');
+                        }
+                    } else {
+                        // AI mode - show last result or waiting message
+                        if (lastAiResult) {
+                            displayPrediction(lastAiResult);
+                        } else {
+                            displayPrediction({ label: 'Click "Detect Now" to analyze', confidence: 0 });
                         }
                     }
                 } else {
