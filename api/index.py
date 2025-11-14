@@ -27,22 +27,36 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
+supabase = None
 try:
     if not supabase_url or not supabase_key:
         print("[ERROR] Missing Supabase environment variables:")
         print(f"  SUPABASE_URL: {'✓' if supabase_url else '✗'}")
         print(f"  SUPABASE_SERVICE_ROLE_KEY: {'✓' if supabase_key else '✗'}")
-        supabase = None
     else:
-        supabase: Client = create_client(supabase_url, supabase_key)
+        # Initialize with SERVICE_ROLE_KEY which bypasses RLS
+        supabase: Client = create_client(
+            supabase_url, 
+            supabase_key,
+            options={
+                'schema': 'public',
+                'headers': {
+                    'apikey': supabase_key,
+                    'Authorization': f'Bearer {supabase_key}'
+                }
+            }
+        )
         # Test the connection
         try:
-            test_query = supabase.table('users').select('count', count='exact').limit(0).execute()
-            print(f"[SUCCESS] Supabase connected! Users table accessible.")
+            test_query = supabase.table('users').select('id').limit(1).execute()
+            print(f"[SUCCESS] Supabase connected!")
         except Exception as test_error:
-            print(f"[WARNING] Supabase client created but table test failed: {str(test_error)}")
+            print(f"[ERROR] Table access failed: {str(test_error)}")
+            supabase = None
 except Exception as e:
     print(f"[ERROR] Failed to initialize Supabase: {str(e)}")
+    import traceback
+    traceback.print_exc()
     supabase = None
 
 # Now using Supabase database

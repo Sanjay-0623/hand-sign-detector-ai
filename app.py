@@ -45,23 +45,38 @@ AI_CACHE = {}  # Cache AI detection results
 supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
+supabase = None
 try:
     if not supabase_url or not supabase_key:
         print("[ERROR] Missing Supabase environment variables:")
         print(f"  SUPABASE_URL: {'✓' if supabase_url else '✗'}")
         print(f"  SUPABASE_SERVICE_ROLE_KEY: {'✓' if supabase_key else '✗'}")
-        supabase = None
     else:
-        supabase: Client = create_client(supabase_url, supabase_key)
-        # Test the connection immediately
+        # Initialize with SERVICE_ROLE_KEY which bypasses RLS
+        supabase: Client = create_client(
+            supabase_url, 
+            supabase_key,
+            options={
+                'schema': 'public',
+                'headers': {
+                    'apikey': supabase_key,
+                    'Authorization': f'Bearer {supabase_key}'
+                }
+            }
+        )
+        # Test the connection
         try:
-            test_query = supabase.table('users').select('count', count='exact').limit(0).execute()
-            print(f"[SUCCESS] Supabase connected successfully! Users table accessible.")
+            test_query = supabase.table('users').select('id').limit(1).execute()
+            print(f"[SUCCESS] Supabase connected successfully!")
+            print(f"[INFO] Service role key is being used - RLS will be bypassed")
         except Exception as test_error:
-            print(f"[WARNING] Supabase client created but table access failed: {str(test_error)}")
-            print(f"[WARNING] This may be due to RLS policies. Will attempt operations anyway.")
+            print(f"[ERROR] Supabase table access failed: {str(test_error)}")
+            print(f"[ERROR] You may need to disable RLS on the users table")
+            supabase = None
 except Exception as e:
     print(f"[ERROR] Failed to initialize Supabase: {str(e)}")
+    import traceback
+    traceback.print_exc()
     supabase = None
 
 # ===== AUTHENTICATION HELPERS =====
