@@ -18,27 +18,14 @@ import sys
 import secrets
 import base64
 import json
-from supabase import create_client, Client
+import requests
 
 # Create Flask app
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 
-supabase_url = os.environ.get("SUPABASE_URL")
-supabase_service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-
-supabase = None
-if supabase_url and supabase_service_key:
-    try:
-        supabase: Client = create_client(supabase_url, supabase_service_key)
-        print(f"[SUCCESS] Supabase client initialized with SERVICE_ROLE_KEY")
-    except Exception as e:
-        print(f"[ERROR] Failed to create Supabase client: {str(e)}")
-        supabase = None
-else:
-    print(f"[ERROR] Missing Supabase environment variables")
-    print(f"  SUPABASE_URL: {'✓' if supabase_url else '✗'}")
-    print(f"  SUPABASE_SERVICE_ROLE_KEY: {'✓' if supabase_service_key else '✗'}")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 user_sessions = {}
 api_keys = {}
@@ -57,11 +44,11 @@ def login_required(f):
 
 def get_current_user():
     """Get current logged-in user"""
-    if 'user_id' in session and supabase:
+    if 'user_id' in session:
         try:
-            result = supabase.table('users').select('*').eq('id', session['user_id']).execute()
-            if result.data and len(result.data) > 0:
-                return result.data[0]
+            users = supabase_query('users', filters={'id': session['user_id']})
+            if users and len(users) > 0:
+                return users[0]
         except Exception as e:
             print(f"[ERROR] Failed to get current user: {str(e)}")
     return None
@@ -88,18 +75,17 @@ def login():
         if not username or not password:
             return render_template('login.html', error='Username and password required')
 
-        # Supabase null check
-        if not supabase:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
             return render_template('login.html', error='Database not configured. Please contact administrator.')
 
         try:
-            response = supabase.table('users').select('*').eq('username', username).execute()
+            users = supabase_query('users', filters={'username': username})
             
-            if not response.data or len(response.data) == 0:
+            if not users or len(users) == 0:
                 print(f"[ERROR] User {username} not found")
                 return render_template('login.html', error='User not found. Please register first.')
             
-            user = response.data[0]
+            user = users[0]
             
             # Verify password
             if user['password'] == password:
@@ -136,28 +122,26 @@ def register():
         if password != confirm_password:
             return render_template('register.html', error='Passwords do not match')
 
-        # Supabase null check
-        if not supabase:
-            return render_template('register.html', error='Server error: Supabase not initialized. Contact administrator.')
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            return render_template('register.html', error='Server error: Database not configured. Contact administrator.')
 
         try:
-            # Check for existing username
-            existing_user = supabase.table('users').select('*').eq('username', username).execute()
+            existing_users = supabase_query('users', filters={'username': username})
             
-            if existing_user.data and len(existing_user.data) > 0:
+            if existing_users and len(existing_users) > 0:
                 print(f"[ERROR] Username {username} already exists")
                 return render_template('register.html', error='Username already exists')
             
-            # Insert new user
-            new_user = supabase.table('users').insert({
+            new_user_data = {
                 'username': username,
                 'password': password
-            }).execute()
+            }
+            new_users = supabase_query('users', method='POST', data=new_user_data)
             
-            if not new_user.data:
+            if not new_users or len(new_users) == 0:
                 raise Exception("User creation returned no data")
             
-            print(f"[SUCCESS] User registered: {username} (ID: {new_user.data[0].get('id')})")
+            print(f"[SUCCESS] User registered: {username} (ID: {new_users[0].get('id')})")
             return redirect(url_for('login'))
         
         except Exception as e:
@@ -165,15 +149,7 @@ def register():
             print(f"[ERROR] Registration failed: {error_message}")
             import traceback
             traceback.print_exc()
-            
-            if 'row-level security' in error_message.lower() or 'rls' in error_message.lower():
-                return render_template('register.html', error='RLS Error: Row Level Security is blocking operations. Disable RLS or check SERVICE_ROLE_KEY.')
-            elif 'permission denied' in error_message.lower():
-                return render_template('register.html', error='Permission denied: Cannot write to users table. Check RLS policies.')
-            elif 'does not exist' in error_message.lower():
-                return render_template('register.html', error='Table Error: Users table not found. Run SQL setup script.')
-            else:
-                return render_template('register.html', error=f'Error: {error_message}')
+            return render_template('register.html', error=f'Error: {error_message}')
 
     return render_template('register.html')
 
@@ -430,3 +406,40 @@ def handler(event, context):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
+
+
+def supabase_query(table, method='GET', filters=None, data=None):
+    """Make direct HTTP request to Supabase REST API"""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise Exception("Supabase credentials not configured")
+    
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    
+    # Add filters to URL
+    if filters:
+        params = []
+        for key, value in filters.items():
+            params.append(f"{key}=eq.{value}")
+        url = f"{url}?{'&'.join(params)}"
+    
+    try:
+        if method == 'GET':
+            response = requests.get(url, headers=headers, timeout=10)
+        elif method == 'POST':
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+        elif method == 'PATCH':
+            response = requests.patch(url, headers=headers, json=data, timeout=10)
+        elif method == 'DELETE':
+            response = requests.delete(url, headers=headers, timeout=10)
+        
+        response.raise_for_status()
+        return response.json() if response.text else []
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Supabase HTTP request failed: {str(e)}")
+        raise
