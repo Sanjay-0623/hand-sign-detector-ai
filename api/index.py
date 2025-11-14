@@ -29,11 +29,18 @@ supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 try:
     if not supabase_url or not supabase_key:
-        print("[ERROR] Supabase environment variables not configured")
+        print("[ERROR] Missing Supabase environment variables:")
+        print(f"  SUPABASE_URL: {'✓' if supabase_url else '✗'}")
+        print(f"  SUPABASE_SERVICE_ROLE_KEY: {'✓' if supabase_key else '✗'}")
         supabase = None
     else:
         supabase: Client = create_client(supabase_url, supabase_key)
-        print(f"[INFO] Supabase client initialized")
+        # Test the connection
+        try:
+            test_query = supabase.table('users').select('count', count='exact').limit(0).execute()
+            print(f"[SUCCESS] Supabase connected! Users table accessible.")
+        except Exception as test_error:
+            print(f"[WARNING] Supabase client created but table test failed: {str(test_error)}")
 except Exception as e:
     print(f"[ERROR] Failed to initialize Supabase: {str(e)}")
     supabase = None
@@ -138,9 +145,10 @@ def register():
 
         # Supabase null check
         if not supabase:
-            return render_template('register.html', error='Database not configured. Please contact administrator.')
+            return render_template('register.html', error='Server error: Supabase not initialized. Contact administrator.')
 
         try:
+            # Check for existing username
             existing_user = supabase.table('users').select('*').eq('username', username).execute()
             
             if existing_user.data and len(existing_user.data) > 0:
@@ -153,14 +161,26 @@ def register():
                 'password': password
             }).execute()
             
-            print(f"[SUCCESS] New user registered: {username}")
+            if not new_user.data:
+                raise Exception("User creation returned no data")
+            
+            print(f"[SUCCESS] User registered: {username} (ID: {new_user.data[0].get('id')})")
             return redirect(url_for('login'))
         
         except Exception as e:
-            print(f"[ERROR] Database error during registration: {str(e)}")
+            error_message = str(e)
+            print(f"[ERROR] Registration failed: {error_message}")
             import traceback
             traceback.print_exc()
-            return render_template('register.html', error='Registration failed. Please try again.')
+            
+            if 'row-level security' in error_message.lower() or 'rls' in error_message.lower():
+                return render_template('register.html', error='RLS Error: Row Level Security is blocking operations. Disable RLS or check SERVICE_ROLE_KEY.')
+            elif 'permission denied' in error_message.lower():
+                return render_template('register.html', error='Permission denied: Cannot write to users table. Check RLS policies.')
+            elif 'does not exist' in error_message.lower():
+                return render_template('register.html', error='Table Error: Users table not found. Run SQL setup script.')
+            else:
+                return render_template('register.html', error=f'Error: {error_message}')
 
     return render_template('register.html')
 
