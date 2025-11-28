@@ -422,6 +422,86 @@ def stats():
     })
 
 
+@app.route('/api/test-ai', methods=['GET'])
+@login_required
+def test_ai():
+    """Test AI API connection"""
+    try:
+        api_key = os.environ.get('AI_API_KEY')
+        provider = os.environ.get('AI_PROVIDER', 'openai').lower()
+        
+        if not api_key:
+            return jsonify({
+                "success": False,
+                "error": "AI_API_KEY environment variable not set",
+                "provider": provider
+            })
+        
+        # Test with a simple text prompt (no image)
+        if provider == 'openai' or provider == 'gpt':
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+            payload = {
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "Say 'hello'"}],
+                "max_tokens": 10
+            }
+            
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            
+            if response.status_code == 401:
+                return jsonify({
+                    "success": False,
+                    "error": "Invalid API key - 401 Unauthorized",
+                    "provider": provider,
+                    "status_code": 401
+                })
+            
+            if response.status_code == 429:
+                return jsonify({
+                    "success": False,
+                    "error": "Rate limit exceeded - too many requests",
+                    "provider": provider,
+                    "status_code": 429
+                })
+            
+            if not response.ok:
+                return jsonify({
+                    "success": False,
+                    "error": f"API error: {response.status_code}",
+                    "provider": provider,
+                    "status_code": response.status_code,
+                    "response": response.text[:200]
+                })
+            
+            result = response.json()
+            message = result['choices'][0]['message']['content']
+            
+            return jsonify({
+                "success": True,
+                "provider": provider,
+                "message": "AI API is working!",
+                "test_response": message
+            })
+        
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"Provider '{provider}' test not implemented",
+                "provider": provider
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "provider": provider if 'provider' in locals() else 'unknown'
+        })
+
+
 # Vercel requires this handler
 def handler(event, context):
     """Vercel serverless handler"""

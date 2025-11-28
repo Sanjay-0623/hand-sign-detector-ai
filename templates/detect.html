@@ -169,6 +169,15 @@
             background: #dc2626;
         }
 
+        .btn-info {
+            background: #06b6d4;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #0496a8;
+        }
+
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -377,6 +386,10 @@
                 <p>ℹ️ AI Vision mode uses server-configured AI providers to detect hand signs automatically without training.</p>
                 <p style="margin-top: 8px;">Click "Detect Now" button below to analyze your current hand sign with AI.</p>
             </div>
+            <!-- Placeholder for AI connection test button -->
+            <div class="btn-group" id="ai-controls-group" style="margin-top: 16px;">
+                <!-- Test AI Connection Button will be appended here by JavaScript -->
+            </div>
         </div>
 
         <div class="grid">
@@ -484,6 +497,42 @@
             loadDataset();
             updateStats();
             initializeMediaPipe();
+            setMode(detectionMode); // Ensure initial mode is set correctly
+        });
+
+        async function testAiConnection() {
+            console.log('[v0] Testing AI API connection...');
+            
+            try {
+                const response = await fetch('/api/test-ai');
+                const result = await response.json();
+                
+                console.log('[v0] AI Test Result:', result);
+                
+                if (result.success) {
+                    alert(`✅ AI API is working!\n\nProvider: ${result.provider}\nTest response: ${result.test_response}`);
+                } else {
+                    alert(`❌ AI API Error:\n\n${result.error}\n\nProvider: ${result.provider}`);
+                }
+            } catch (error) {
+                console.error('[v0] AI test failed:', error);
+                alert(`❌ Network Error:\n\n${error.message}`);
+            }
+        }
+        
+        // Add test button to page on load
+        window.addEventListener('load', () => {
+            const controlsDiv = document.getElementById('ai-controls-group'); // Target the new div
+            if (controlsDiv) { // Check if the div exists
+                const testBtn = document.createElement('button');
+                testBtn.id = 'test-ai-btn';
+                testBtn.className = 'btn btn-info'; // Use Bootstrap-like classes
+                testBtn.textContent = '🧪 Test AI Connection';
+                testBtn.onclick = testAiConnection;
+                testBtn.style.marginTop = '10px';
+                testBtn.style.width = '100%';
+                controlsDiv.appendChild(testBtn);
+            }
         });
 
         function setMode(mode) {
@@ -492,6 +541,7 @@
             const aiBtn = document.getElementById('mode-ai');
             const aiInfo = document.getElementById('ai-info');
             const detectNowBtn = document.getElementById('detect-now-btn');
+            const aiControlsGroup = document.getElementById('ai-controls-group'); // Get the group div
             
             if (knnBtn) knnBtn.style.background = mode === 'knn' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
             if (aiBtn) aiBtn.style.background = mode === 'ai' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
@@ -500,6 +550,11 @@
             if (detectNowBtn) {
                 detectNowBtn.style.display = mode === 'ai' ? 'inline-block' : 'none';
                 detectNowBtn.disabled = !cameraActive;
+            }
+            
+            // Show/hide the test AI connection button group based on mode
+            if (aiControlsGroup) {
+                aiControlsGroup.style.display = mode === 'ai' ? 'block' : 'none';
             }
         }
 
