@@ -390,6 +390,12 @@
             <div class="btn-group" id="ai-controls-group" style="margin-top: 16px;">
                 <!-- Test AI Connection Button will be appended here by JavaScript -->
             </div>
+            <!-- ADDING DIAGNOSTICS BUTTON TO THE UI -->
+            <div class="controls" style="margin-top: 10px;">
+                <button id="diagnostics-btn" class="btn" style="background: #8b5cf6; display: none;">
+                    Show Dataset Diagnostics
+                </button>
+            </div>
         </div>
 
         <div class="grid">
@@ -405,7 +411,7 @@
                         <button class="btn-primary" id="start-btn" onclick="startCamera()">Start Camera</button>
                         <button class="btn-danger" id="stop-btn" onclick="stopCamera()" disabled>Stop Camera</button>
                         <!-- Added manual AI detection button -->
-                        <button class="btn-success" id="detect-now-btn" onclick="detectNow()" disabled style="display: none;">🔍 Detect Now (AI)</button>
+                        <button class="btn-success" id="detect-now-btn" onclick="detectNow()" disabled style="display: none;">🔍 Detect Now (Free)</button>
                     </div>
 
                     <div class="prediction-box" id="prediction-box">
@@ -571,7 +577,28 @@
             }
             
             lastAiResult = null;
+            updateModeUI(); // Call to update other UI elements based on mode
         }
+
+        // CHANGE: Show diagnostics button when in KNN mode
+        function updateModeUI() {
+            const diagnosticsBtn = document.getElementById('diagnostics-btn');
+            if (detectionMode === 'knn') {
+                diagnosticsBtn.style.display = 'inline-block';
+            } else {
+                diagnosticsBtn.style.display = 'none';
+            }
+            
+            const detectNowBtn = document.getElementById('detect-now-btn');
+            if (cameraActive && detectionMode === 'ai') {
+                detectNowBtn.style.display = 'block';
+                detectNowBtn.disabled = false;
+            } else {
+                if(detectNowBtn) detectNowBtn.style.display = 'none';
+            }
+        }
+
+        document.getElementById('diagnostics-btn').addEventListener('click', showKNNDiagnostics);
 
         /**
          * Detect hand gestures using MediaPipe landmarks (completely free, runs in browser)
@@ -800,6 +827,7 @@
             }
             
             lastAiResult = null;
+            updateModeUI(); // Call to update other UI elements based on mode
         }
 
 
@@ -937,6 +965,7 @@
                 }
                 updateStatusBadge(true);
                 console.log('[v0] Camera initialization complete, cameraActive =', cameraActive);
+                updateModeUI(); // Update UI after camera starts
             } catch (error) {
                 console.error('[v0] Camera error:', error);
                 alert('Failed to start camera: ' + error.message + '\n\nPlease check camera permissions and try again.');
@@ -959,6 +988,7 @@
                     detectNowBtn.disabled = true;
                 }
                 updateStatusBadge(false);
+                updateModeUI(); // Update UI after camera stops
             } catch (error) {
                 console.error('Error stopping camera:', error);
             }
@@ -1165,92 +1195,109 @@
             }, 2000);
         }
 
-        function loadDataset() {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            console.log('[v0] Loading dataset from localStorage key:', STORAGE_KEY);
-            console.log('[v0] Raw localStorage value:', saved ? saved.substring(0, 100) + '...' : 'null');
+        function showKNNDiagnostics() {
+            const diagDiv = document.createElement('div');
+            diagDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;padding:20px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.3);max-width:80%;max-height:80%;overflow:auto;z-index:10000;color:black;';
             
-            if (saved) {
-                try {
-                    dataset = JSON.parse(saved);
-                    console.log('[v0] Dataset parsed successfully');
-                    console.log('[v0] Dataset type:', Array.isArray(dataset) ? 'array' : typeof dataset);
-                    console.log('[v0] Dataset length:', dataset.length);
+            let html = '<h2 style="margin-top:0;">KNN Dataset Diagnostics</h2>';
+            
+            // Check all possible storage keys
+            html += '<h3>All localStorage keys with "handSignData":</h3><ul>';
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.includes('handSignData')) {
+                    const data = JSON.parse(localStorage.getItem(key) || '[]');
+                    html += `<li><b>${key}</b>: ${data.length} samples</li>`;
+                }
+            }
+            html += '</ul>';
+            
+            // Show current dataset
+            html += `<h3>Current Dataset (${STORAGE_KEY}):</h3>`;
+            html += `<p>Total samples: <b>${dataset.length}</b></p>`;
+            
+            if (dataset.length === 0) {
+                html += '<p style="color:red;"><b>ERROR: Dataset is empty! You need to train hand signs first.</b></p>';
+            } else {
+                const labelCounts = {};
+                dataset.forEach(sample => {
+                    labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                });
+                
+                html += '<h4>Samples by label:</h4><ul>';
+                Object.entries(labelCounts).forEach(([label, count]) => {
+                    html += `<li><b>${label}</b>: ${count} samples</li>`;
+                });
+                html += '</ul>';
+                
+                // Check if all samples have valid landmarks
+                let invalidCount = 0;
+                dataset.forEach((sample, idx) => {
+                    if (!sample.landmarks || sample.landmarks.length !== 63) {
+                        invalidCount++;
+                    }
+                });
+                
+                if (invalidCount > 0) {
+                    html += `<p style="color:orange;"><b>WARNING: ${invalidCount} samples have invalid landmarks!</b></p>`;
+                }
+                
+                // Show sample data
+                html += '<h4>First 3 samples:</h4><pre style="font-size:10px;overflow:auto;max-height:200px;">';
+                dataset.slice(0, 3).forEach((sample, idx) => {
+                    html += `Sample ${idx}: ${sample.label} - Landmarks: [${sample.landmarks.slice(0, 6).map(n => n.toFixed(3)).join(', ')}...] (${sample.landmarks.length} values)\n`;
+                });
+                html += '</pre>';
+            }
+            
+            html += '<button onclick="this.parentElement.remove()" style="margin-top:15px;padding:10px 20px;background:#3b82f6;color:white;border:none;border-radius:5px;cursor:pointer;">Close</button>';
+            
+            diagDiv.innerHTML = html;
+            document.body.appendChild(diagDiv);
+        }
+
+        function loadDataset() {
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (stored) {
+                    dataset = JSON.parse(stored);
+                    console.log('[KNN] Dataset loaded:', dataset.length, 'samples from key:', STORAGE_KEY);
                     
-                    if (!Array.isArray(dataset)) {
-                        console.error('[v0] Dataset is not an array, resetting');
-                        dataset = [];
-                    } else {
-                        const labelCounts = {};
-                        dataset.forEach(sample => {
-                            if (sample.label) {
-                                labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
-                            }
-                        });
-                        console.log('[v0] Dataset labels:', labelCounts);
-                        console.log('[v0] Total unique labels:', Object.keys(labelCounts).length);
-                        
-                        if (dataset.length > 0) {
-                            const firstSample = dataset[0];
-                            console.log('[v0] First sample:', {
-                                label: firstSample.label,
-                                landmarksLength: firstSample.landmarks?.length,
-                                landmarksType: Array.isArray(firstSample.landmarks) ? 'array' : typeof firstSample.landmarks,
-                                firstFewValues: firstSample.landmarks?.slice(0, 5)
-                            });
+                    const labelCounts = {};
+                    dataset.forEach(sample => {
+                        if (sample.label) {
+                            labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
                         }
+                    });
+                    console.log('[KNN] Labels in dataset:', labelCounts);
+                    
+                    let invalidSamples = 0;
+                    dataset.forEach((sample, idx) => {
+                        if (!sample.landmarks || sample.landmarks.length !== 63) {
+                            console.error('[KNN] Invalid sample at index', idx, '- label:', sample.label, 'landmarks length:', sample.landmarks?.length);
+                            invalidSamples++;
+                        }
+                    });
+                    
+                    if (invalidSamples > 0) {
+                        console.error('[KNN] Found', invalidSamples, 'invalid samples in dataset!');
                     }
                     
                     updateStats();
                     updateDatasetList();
-                } catch (error) {
-                    console.error('[v0] Failed to parse dataset:', error);
-                    dataset = [];
-                }
-            } else {
-                console.log('[v0] No saved dataset found in localStorage');
-                console.log('[v0] Available localStorage keys:', Object.keys(localStorage));
-                dataset = [];
-            }
-        }
-
-        function showDatasetInfo() {
-            const info = document.createElement('div');
-            info.style.cssText = 'position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.9); color: white; padding: 15px; border-radius: 8px; max-width: 300px; max-height: 400px; overflow-y: auto; z-index: 10000; font-size: 12px;';
-            
-            let html = '<h3 style="margin: 0 0 10px 0;">Dataset Info</h3>';
-            html += `<p><strong>Storage Key:</strong> ${STORAGE_KEY}</p>`;
-            html += `<p><strong>Total Samples:</strong> ${dataset.length}</p>`;
-            
-            if (dataset.length > 0) {
-                const labelCounts = {};
-                dataset.forEach(sample => {
-                    if (sample.label) {
-                        labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                } else {
+                    console.log('[KNN] No dataset found at key:', STORAGE_KEY);
+                    console.log('[KNN] Checking all localStorage keys...');
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.includes('handSignData')) {
+                            console.log('[KNN] Found key:', key);
+                        }
                     }
-                });
-                
-                html += '<p><strong>Labels in Dataset:</strong></p><ul style="margin: 5px 0; padding-left: 20px;">';
-                Object.entries(labelCounts).forEach(([label, count]) => {
-                    html += `<li>${label}: ${count} samples</li>`;
-                });
-                html += '</ul>';
-            } else {
-                html += '<p style="color: #ef4444;">⚠️ Dataset is empty! Go to Train page to add samples.</p>';
-            }
-            
-            html += '<p style="margin-top: 10px;"><strong>All localStorage keys:</strong></p><ul style="margin: 5px 0; padding-left: 20px; max-height: 100px; overflow-y: auto;">';
-            Object.keys(localStorage).forEach(key => {
-                if (key.startsWith('handsign_dataset_')) {
-                    html += `<li>${key}</li>`;
                 }
-            });
-            html += '</ul>';
-            
-            html += '<button onclick="this.parentElement.remove()" style="margin-top: 10px; padding: 5px 10px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>';
-            
-            info.innerHTML = html;
-            document.body.appendChild(info);
+            } catch (error) {
+                console.error('[KNN] Error loading dataset:', error);
+            }
         }
 
         function updateStats() {
@@ -1269,8 +1316,8 @@
                         <div>Total Samples: <strong>${dataset.length}</strong></div>
                         <div>Unique Labels: <strong>${uniqueLabels}</strong></div>
                         <div>K Value: <strong>${kValue}</strong></div>
-                        <button onclick="showDatasetInfo()" style="padding: 5px 15px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
-                            📊 View Dataset
+                        <button id="diagnostics-btn-stats" onclick="showKNNDiagnostics()" style="padding: 5px 15px; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                            📊 View Dataset Diagnostics
                         </button>
                     </div>
                 `;
@@ -1293,7 +1340,7 @@
             }
             
             let html = '';
-            Object.entries(labelCounts).forEach(([label, count]) => {
+            Object.entries(labelCounts).sort().forEach(([label, count]) => {
                 html += `<div class="dataset-item"><span>${label}</span><span>${count} sample${count !== 1 ? 's' : ''}</span></div>`;
             });
             list.innerHTML = html;
