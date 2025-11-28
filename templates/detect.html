@@ -432,7 +432,7 @@
             <div>
                 <div class="card">
                     <h2>Statistics</h2>
-                    <div class="stats">
+                    <div class="stats" id="stats">
                         <div class="stat-box">
                             <div class="stat-label">Total Gestures</div>
                             <div class="stat-value" id="total-gestures">0</div>
@@ -1214,20 +1214,69 @@
             }
         }
 
-        function updateStats() {
-            let totalSamples = dataset.length;
-            const labelCounts = {};
-            dataset.forEach(sample => {
-                if (sample.label) {
-                    labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+        function showDatasetInfo() {
+            const info = document.createElement('div');
+            info.style.cssText = 'position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.9); color: white; padding: 15px; border-radius: 8px; max-width: 300px; max-height: 400px; overflow-y: auto; z-index: 10000; font-size: 12px;';
+            
+            let html = '<h3 style="margin: 0 0 10px 0;">Dataset Info</h3>';
+            html += `<p><strong>Storage Key:</strong> ${STORAGE_KEY}</p>`;
+            html += `<p><strong>Total Samples:</strong> ${dataset.length}</p>`;
+            
+            if (dataset.length > 0) {
+                const labelCounts = {};
+                dataset.forEach(sample => {
+                    if (sample.label) {
+                        labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                    }
+                });
+                
+                html += '<p><strong>Labels in Dataset:</strong></p><ul style="margin: 5px 0; padding-left: 20px;">';
+                Object.entries(labelCounts).forEach(([label, count]) => {
+                    html += `<li>${label}: ${count} samples</li>`;
+                });
+                html += '</ul>';
+            } else {
+                html += '<p style="color: #ef4444;">⚠️ Dataset is empty! Go to Train page to add samples.</p>';
+            }
+            
+            html += '<p style="margin-top: 10px;"><strong>All localStorage keys:</strong></p><ul style="margin: 5px 0; padding-left: 20px; max-height: 100px; overflow-y: auto;">';
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('handsign_dataset_')) {
+                    html += `<li>${key}</li>`;
                 }
             });
-            const totalGestures = Object.keys(labelCounts).length;
+            html += '</ul>';
             
-            document.getElementById('total-gestures').textContent = totalGestures;
-            document.getElementById('total-samples').textContent = totalSamples;
-            console.log('[v0] Stats updated - Gestures:', totalGestures, 'Samples:', totalSamples);
+            html += '<button onclick="this.parentElement.remove()" style="margin-top: 10px; padding: 5px 10px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>';
+            
+            info.innerHTML = html;
+            document.body.appendChild(info);
         }
+
+        function updateStats() {
+            const statsDiv = document.getElementById('stats');
+            if (statsDiv) {
+                let labelCounts = {};
+                dataset.forEach(sample => {
+                    if (sample.label) {
+                        labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                    }
+                });
+                
+                const uniqueLabels = Object.keys(labelCounts).length;
+                statsDiv.innerHTML = `
+                    <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+                        <div>Total Samples: <strong>${dataset.length}</strong></div>
+                        <div>Unique Labels: <strong>${uniqueLabels}</strong></div>
+                        <div>K Value: <strong>${kValue}</strong></div>
+                        <button onclick="showDatasetInfo()" style="padding: 5px 15px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                            📊 View Dataset
+                        </button>
+                    </div>
+                `;
+            }
+        }
+
 
         function updateDatasetList() {
             const list = document.getElementById('dataset-list');
