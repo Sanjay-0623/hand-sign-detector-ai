@@ -19,10 +19,14 @@ import secrets
 import base64
 import json
 import requests
+import time
 
 # Create Flask app
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
+
+MIN_API_INTERVAL = 15  # Minimum 15 seconds between API calls per user
+LAST_API_CALL = {}  # Track last API call time per user session
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -189,11 +193,28 @@ def logout():
 @app.route('/api/detect-vision', methods=['POST'])
 @login_required
 def detect_vision():
-    """Use AI vision model to detect hand signs with enhanced reliability"""
+    """Use AI vision model to detect hand signs with rate limiting"""
     try:
         username = session.get('username')
+        user_id = session.get('user_id')
         data = request.json
         image_data = data.get('image')
+        
+        current_time = time.time()
+        if user_id in LAST_API_CALL:
+            time_since_last_call = current_time - LAST_API_CALL[user_id]
+            if time_since_last_call < MIN_API_INTERVAL:
+                wait_time = int(MIN_API_INTERVAL - time_since_last_call)
+                print(f"[AI-DETECT] RATE LIMITED: User {username} must wait {wait_time} more seconds")
+                return jsonify({
+                    "error": "rate_limit",
+                    "message": f"Please wait {wait_time} seconds before detecting again",
+                    "wait_seconds": wait_time,
+                    "label": f"Rate limit: wait {wait_time}s",
+                    "confidence": 0
+                }), 429
+        
+        LAST_API_CALL[user_id] = current_time
         
         api_key = os.environ.get('AI_API_KEY')
         provider = os.environ.get('AI_PROVIDER', 'openai').lower()
@@ -234,6 +255,24 @@ def detect_vision():
         print(f"[AI-DETECT] SUCCESS: {result}")
         print(f"[AI-DETECT] ========== END ==========")
         return jsonify(result)
+    
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:
+            print(f"[AI-DETECT] OpenAI rate limit hit for user {username}")
+            return jsonify({
+                "error": "rate_limit",
+                "message": "Rate limit exceeded - too many requests",
+                "provider": provider,
+                "label": "Rate limit exceeded",
+                "confidence": 0
+            }), 429
+        
+        error_msg = str(e)
+        print(f"[AI-DETECT] HTTP Error: {error_msg}")
+        return jsonify({
+            "label": f"API error: {error_msg[:50]}",
+            "confidence": 0
+        }), 500
     
     except Exception as e:
         error_type = type(e).__name__

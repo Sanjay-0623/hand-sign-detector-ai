@@ -379,8 +379,8 @@
         <div class="card" style="margin-bottom: 20px;">
             <h2>Detection Mode</h2>
             <div class="controls">
-                <button class="btn-primary" id="mode-knn" onclick="setMode('knn')" style="background: #3b82f6;">KNN (Trained)</button>
-                <button class="btn-primary" id="mode-ai" onclick="setMode('ai')" style="background: rgba(148, 163, 184, 0.3);">AI Vision</button>
+                <button id="knn-mode-btn" class="btn-primary" onclick="setMode('knn')" style="background: #3b82f6;">KNN (Trained)</button>
+                <button id="ai-mode-btn" class="btn-primary" onclick="setMode('ai')" style="background: rgba(148, 163, 184, 0.3);">AI Vision</button>
             </div>
             <div id="ai-info" style="display: none; margin-top: 16px; color: #94a3b8; font-size: 0.9rem;">
                 <p>ℹ️ AI Vision mode uses server-configured AI providers to detect hand signs automatically without training.</p>
@@ -473,6 +473,8 @@
         let detectionMode = 'knn'; // 'knn' or 'ai'
         let isDetecting = false;
         let lastAiResult = null; // Cache last result
+        let lastDetectionTime = 0;
+        const MIN_DETECTION_INTERVAL = 15000; // 15 seconds in milliseconds
 
 
         // Sentence builder variables
@@ -537,195 +539,269 @@
 
         function setMode(mode) {
             detectionMode = mode;
-            const knnBtn = document.getElementById('mode-knn');
-            const aiBtn = document.getElementById('mode-ai');
-            const aiInfo = document.getElementById('ai-info');
+            console.log('[v0] Detection mode set to:', mode);
+            
+            const knnBtn = document.getElementById('knn-mode-btn');
+            const aiBtn = document.getElementById('ai-mode-btn');
             const detectNowBtn = document.getElementById('detect-now-btn');
-            const aiControlsGroup = document.getElementById('ai-controls-group'); // Get the group div
+            const testAiBtn = document.getElementById('test-ai-btn');
             
-            if (knnBtn) knnBtn.style.background = mode === 'knn' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
-            if (aiBtn) aiBtn.style.background = mode === 'ai' ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)';
-            if (aiInfo) aiInfo.style.display = mode === 'ai' ? 'block' : 'none';
-            
-            if (detectNowBtn) {
-                detectNowBtn.style.display = mode === 'ai' ? 'inline-block' : 'none';
-                detectNowBtn.disabled = !cameraActive;
+            if (mode === 'knn') {
+                if (knnBtn) {
+                    knnBtn.classList.add('active');
+                    knnBtn.style.backgroundColor = '#3b82f6';
+                }
+                if (aiBtn) {
+                    aiBtn.classList.remove('active');
+                    aiBtn.style.backgroundColor = '#6b7280';
+                }
+                if (detectNowBtn) detectNowBtn.style.display = 'none';
+                if (testAiBtn) testAiBtn.style.display = 'none';
+            } else {
+                if (knnBtn) {
+                    knnBtn.classList.remove('active');
+                    knnBtn.style.backgroundColor = '#6b7280';
+                }
+                if (aiBtn) {
+                    aiBtn.classList.add('active');
+                    aiBtn.style.backgroundColor = '#10b981';
+                }
+                if (detectNowBtn) detectNowBtn.style.display = 'none';
+                if (testAiBtn) testAiBtn.style.display = 'none';
             }
             
-            // Show/hide the test AI connection button group based on mode
-            if (aiControlsGroup) {
-                aiControlsGroup.style.display = mode === 'ai' ? 'block' : 'none';
-            }
+            lastAiResult = null;
         }
 
+        /**
+         * Detect hand gestures using MediaPipe landmarks (completely free, runs in browser)
+         */
+        function detectGestureFromLandmarks(landmarks) {
+            if (!landmarks || landmarks.length !== 21) {
+                return { label: 'No hand detected', confidence: 0 };
+            }
+
+            // Calculate finger states (extended or curled)
+            const fingers = getFingerStates(landmarks);
+            
+            // Detect specific gestures based on finger patterns
+            const gesture = classifyGesture(fingers, landmarks);
+            
+            return gesture;
+        }
+
+        /**
+         * Determine which fingers are extended
+         */
+        function getFingerStates(landmarks) {
+            const fingers = {
+                thumb: false,
+                index: false,
+                middle: false,
+                ring: false,
+                pinky: false
+            };
+
+            // Thumb: Compare tip (4) with base (2) - check if extended sideways
+            const thumbTip = landmarks[4];
+            const thumbBase = landmarks[2];
+            const wrist = landmarks[0];
+            fingers.thumb = Math.abs(thumbTip.x - wrist.x) > Math.abs(thumbBase.x - wrist.x) * 1.3;
+
+            // Index finger: tip (8) vs knuckle (6)
+            fingers.index = landmarks[8].y < landmarks[6].y - 0.05;
+
+            // Middle finger: tip (12) vs knuckle (10)
+            fingers.middle = landmarks[12].y < landmarks[10].y - 0.05;
+
+            // Ring finger: tip (16) vs knuckle (14)
+            fingers.ring = landmarks[16].y < landmarks[14].y - 0.05;
+
+            // Pinky finger: tip (20) vs knuckle (18)
+            fingers.pinky = landmarks[20].y < landmarks[18].y - 0.05;
+
+            return fingers;
+        }
+
+        /**
+         * Classify gesture based on finger states
+         */
+        function classifyGesture(fingers, landmarks) {
+            const extendedCount = Object.values(fingers).filter(v => v).length;
+
+            // Open Palm - all fingers extended
+            if (extendedCount === 5) {
+                return { label: 'Open Palm', confidence: 0.95 };
+            }
+
+            // Fist - no fingers extended
+            if (extendedCount === 0) {
+                return { label: 'Fist', confidence: 0.95 };
+            }
+
+            // Peace Sign / Victory - only index and middle extended
+            if (fingers.index && fingers.middle && !fingers.ring && !fingers.pinky && !fingers.thumb) {
+                return { label: 'Peace Sign', confidence: 0.92 };
+            }
+
+            // Thumbs Up - only thumb extended
+            if (fingers.thumb && !fingers.index && !fingers.middle && !fingers.ring && !fingers.pinky) {
+                return { label: 'Thumbs Up', confidence: 0.90 };
+            }
+
+            // OK Sign - thumb and index form circle, others extended
+            if (fingers.middle && fingers.ring && fingers.pinky) {
+                const thumbTip = landmarks[4];
+                const indexTip = landmarks[8];
+                const distance = Math.sqrt(
+                    Math.pow(thumbTip.x - indexTip.x, 2) + 
+                    Math.pow(thumbTip.y - indexTip.y, 2)
+                );
+                if (distance < 0.05) {
+                    return { label: 'OK Sign', confidence: 0.88 };
+                }
+            }
+
+            // Pointing - only index extended
+            if (fingers.index && !fingers.middle && !fingers.ring && !fingers.pinky) {
+                return { label: 'Pointing', confidence: 0.90 };
+            }
+
+            // Rock / Heavy Metal - index and pinky extended
+            if (fingers.index && fingers.pinky && !fingers.middle && !fingers.ring) {
+                return { label: 'Rock Sign', confidence: 0.88 };
+            }
+
+            // Three Fingers - index, middle, ring extended
+            if (fingers.index && fingers.middle && fingers.ring && !fingers.pinky) {
+                return { label: 'Three', confidence: 0.85 };
+            }
+
+            // Four Fingers - all except thumb
+            if (!fingers.thumb && fingers.index && fingers.middle && fingers.ring && fingers.pinky) {
+                return { label: 'Four', confidence: 0.85 };
+            }
+
+            // One Finger - only index
+            if (fingers.index && extendedCount === 1) {
+                return { label: 'One', confidence: 0.85 };
+            }
+
+            // Two Fingers - index and middle
+            if (fingers.index && fingers.middle && extendedCount === 2) {
+                return { label: 'Two', confidence: 0.85 };
+            }
+
+            // Call Me / Shaka - thumb and pinky extended
+            if (fingers.thumb && fingers.pinky && !fingers.index && !fingers.middle && !fingers.ring) {
+                return { label: 'Call Me', confidence: 0.87 };
+            }
+
+            // Unknown gesture
+            return { label: 'Unknown Gesture', confidence: 0.40 };
+        }
+
+        /**
+         * Detect hand sign now using free MediaPipe analysis (instant, no API calls)
+         */
         async function detectNow() {
-            console.log('[v0] ========== DETECT NOW CLICKED ==========');
+            console.log('[v0] Detect Now clicked');
             
-            if (isDetecting) {
-                console.log('[v0] Detection already in progress, ignoring');
+            const btn = document.getElementById('detect-now-btn');
+            if (!btn || isDetecting) {
+                console.log('[v0] Already detecting or button not found');
                 return;
             }
-            
-            if (!cameraActive) {
-                console.log('[v0] Camera not active');
-                alert('Please start the camera first');
-                return;
-            }
-            
-            const video = document.getElementById('video');
-            const canvas = document.getElementById('canvas');
-            
-            if (!video || !canvas) {
-                console.error('[v0] Video or canvas element not found');
-                alert('Camera elements not initialized');
-                return;
-            }
-            
-            console.log('[v0] Video ready state:', video.readyState);
-            console.log('[v0] Video dimensions:', video.videoWidth, 'x', video.videoHeight);
-            
-            isDetecting = true;
-            const detectNowBtn = document.getElementById('detect-now-btn');
-            if (detectNowBtn) {
-                detectNowBtn.disabled = true;
-                detectNowBtn.textContent = '⏳ Analyzing...';
-            }
-            
-            displayPrediction({ label: 'Capturing image...', confidence: 0 });
-            
+
             try {
-                await new Promise(resolve => setTimeout(resolve, 100));
+                isDetecting = true;
+                btn.disabled = true;
+                btn.textContent = '⏳ Analyzing...';
                 
-                const imageData = captureFrame();
+                // Use MediaPipe landmarks if available
+                const canvas = document.getElementById('canvas');
+                const video = document.getElementById('video');
                 
-                console.log('[v0] Captured frame for AI analysis');
-                console.log('[v0] Image data length:', imageData ? imageData.length : 0);
-                
-                if (!imageData || imageData.length < 100) {
-                    throw new Error('Failed to capture image from camera');
+                if (!video || !canvas) {
+                    throw new Error('Video or canvas not available');
                 }
-                
-                displayPrediction({ label: 'Sending to AI...', confidence: 0 });
-                
-                const prediction = await detectWithAi(imageData);
-                
-                console.log('[v0] AI detection complete:', prediction);
-                
-                if (prediction && prediction.label) {
-                    if (prediction.label !== 'none' && !prediction.label.includes('error') && !prediction.label.includes('failed')) {
-                        console.log('[v0] Valid hand sign detected:', prediction.label);
-                        displayPrediction(prediction);
-                        currentPrediction = prediction;
-                        addToSentence(prediction.label);
-                        autoSpeak(prediction);
-                    } else if (prediction.label === 'none') {
-                        console.log('[v0] No hand detected by AI');
-                        displayPrediction({ label: 'No hand sign detected', confidence: 0 });
-                    } else {
-                        // Error message from AI
-                        console.log('[v0] AI returned error:', prediction.label);
-                        displayPrediction(prediction);
+
+                // Get current hand landmarks from MediaPipe
+                if (hands && hands.h && hands.h.results && hands.h.results.multiHandLandmarks) {
+                    const landmarks = hands.h.results.multiHandLandmarks[0];
+                    if (landmarks) {
+                        console.log('[v0] Using MediaPipe landmarks for free gesture detection');
+                        const gesture = detectGestureFromLandmarks(landmarks);
+                        
+                        lastAiResult = gesture;
+                        displayPrediction(gesture);
+                        
+                        if (gesture.confidence > 0.5) {
+                            addToSentence(gesture.label);
+                            autoSpeak(gesture);
+                        }
+                        
+                        btn.textContent = '🔍 Detect Now (Free)';
+                        btn.disabled = false;
+                        isDetecting = false;
+                        return;
                     }
-                } else {
-                    console.error('[v0] Invalid AI response - no prediction object');
-                    displayPrediction({ label: 'AI Error: No response received', confidence: 0 });
                 }
+
+                // Fallback: Show message if no hand detected
+                const gesture = { label: 'No hand detected - show your hand to camera', confidence: 0 };
+                lastAiResult = gesture;
+                displayPrediction(gesture);
+                
             } catch (error) {
-                console.error('[v0] Detection error:', error);
-                console.error('[v0] Error stack:', error.stack);
-                displayPrediction({ label: 'Error: ' + error.message, confidence: 0 });
+                console.error('[v0] Detect error:', error);
+                displayPrediction({ 
+                    label: `Error: ${error.message}`, 
+                    confidence: 0 
+                });
             } finally {
+                btn.textContent = '🔍 Detect Now (Free)';
+                btn.disabled = false;
                 isDetecting = false;
-                if (detectNowBtn) {
-                    detectNowBtn.disabled = false;
-                    detectNowBtn.textContent = '🔍 Detect Now (AI)';
-                }
-                console.log('[v0] ========== DETECT NOW COMPLETE ==========');
             }
         }
 
-        async function detectWithAi(imageData) {
-            try {
-                console.log('[v0] ========== AI API CALL START ==========');
-                console.log('[v0] Sending request to /api/detect-vision');
-                console.log('[v0] Image data length:', imageData.length);
-                console.log('[v0] Image data prefix:', imageData.substring(0, 50));
-                
-                const response = await fetch('/api/detect-vision', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        image: imageData
-                    })
-                });
-                
-                console.log('[v0] Response status:', response.status);
-                console.log('[v0] Response ok:', response.ok);
-                console.log('[v0] Response headers:', Object.fromEntries(response.headers));
-                
-                const responseText = await response.text();
-                console.log('[v0] Response body:', responseText);
-                
-                if (!response.ok) {
-                    let errorMsg = 'AI detection failed';
-                    try {
-                        const error = JSON.parse(responseText);
-                        errorMsg = error.error || errorMsg;
-                    } catch (e) {
-                        errorMsg = responseText || errorMsg;
-                    }
-                    
-                    console.error('[v0] AI API error:', errorMsg);
-                    
-                    return {
-                        label: errorMsg,
-                        confidence: 0
-                    };
+        function setMode(mode) {
+            detectionMode = mode;
+            console.log('[v0] Detection mode set to:', mode);
+            
+            const knnBtn = document.getElementById('knn-mode-btn');
+            const aiBtn = document.getElementById('ai-mode-btn');
+            const detectNowBtn = document.getElementById('detect-now-btn');
+            const testAiBtn = document.getElementById('test-ai-btn');
+            
+            if (mode === 'knn') {
+                if (knnBtn) {
+                    knnBtn.classList.add('active');
+                    knnBtn.style.backgroundColor = '#3b82f6';
                 }
-                
-                const result = JSON.parse(responseText);
-                console.log('[v0] AI result parsed:', result);
-                
-                if (!result) {
-                    console.error('[v0] Result is null or undefined');
-                    return {
-                        label: 'AI returned empty response',
-                        confidence: 0
-                    };
+                if (aiBtn) {
+                    aiBtn.classList.remove('active');
+                    aiBtn.style.backgroundColor = '#6b7280';
                 }
-                
-                if (!result.label) {
-                    console.error('[v0] Result missing label field:', result);
-                    return {
-                        label: 'AI response missing label',
-                        confidence: 0
-                    };
+                if (detectNowBtn) detectNowBtn.style.display = 'none';
+                if (testAiBtn) testAiBtn.style.display = 'none';
+            } else {
+                if (knnBtn) {
+                    knnBtn.classList.remove('active');
+                    knnBtn.style.backgroundColor = '#6b7280';
                 }
-                
-                result.label = result.label.trim().toLowerCase();
-                
-                if (result.confidence === undefined) {
-                    result.confidence = 0.95;
+                if (aiBtn) {
+                    aiBtn.classList.add('active');
+                    aiBtn.style.backgroundColor = '#10b981';
                 }
-                
-                lastAiResult = result;
-                console.log('[v0] ========== AI API CALL SUCCESS ==========');
-                return result;
-                
-            } catch (error) {
-                console.error('[v0] ========== AI API CALL FAILED ==========');
-                console.error('[v0] Exception type:', error.name);
-                console.error('[v0] Exception message:', error.message);
-                console.error('[v0] Exception stack:', error.stack);
-                
-                return {
-                    label: 'Network error: ' + error.message,
-                    confidence: 0
-                };
+                if (detectNowBtn) detectNowBtn.style.display = 'none';
+                if (testAiBtn) testAiBtn.style.display = 'none';
             }
+            
+            lastAiResult = null;
         }
+
 
         async function initializeMediaPipe() {
             try {
@@ -999,11 +1075,13 @@
                             console.log('[v0] Normalization failed or invalid length');
                         }
                     } else {
-                        // AI mode - show last result or waiting message
-                        if (lastAiResult) {
-                            displayPrediction(lastAiResult);
-                        } else {
-                            displayPrediction({ label: 'Click "Detect Now" to analyze', confidence: 0 });
+                        // AI mode - use free gesture detection
+                        const gesture = detectGestureFromLandmarks(landmarks);
+                        lastAiResult = gesture;
+                        displayPrediction(gesture);
+                        if (gesture.confidence > 0.5) {
+                            addToSentence(gesture.label);
+                            autoSpeak(gesture);
                         }
                     }
                 } else {
@@ -1047,10 +1125,10 @@
                 }
             } else {
                 box.innerHTML = `
-                    <div class="prediction-label no-prediction">Click "Detect Now" to analyze</div>
-                    <div class="prediction-confidence">Confidence: 0.0%</div>
+                    <div class="prediction-label no-prediction">Awaiting hand...</div>
+                    <div class="prediction-confidence">Confidence: —</div>
                     <div class="prediction-text" style="margin-top: 8px; color: #94a3b8;">
-                        Detected: <strong>CLICK "DETECT NOW" TO ANALYZE</strong>
+                        Detected: <strong>AWAITING HAND...</strong>
                     </div>
                 `;
                 const speakBtn = document.getElementById('speak-btn');
