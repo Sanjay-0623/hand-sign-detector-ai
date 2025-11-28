@@ -738,7 +738,7 @@
                         
                         if (gesture.confidence > 0.5) {
                             addToSentence(gesture.label);
-                            autoSpeak(gesture);
+                            // Removed autoSpeak(gesture)
                         }
                         
                         btn.textContent = '🔍 Detect Now (Free)';
@@ -1069,7 +1069,7 @@
                             currentPrediction = prediction;
                             if (prediction) {
                                 addToSentence(prediction.label);
-                                autoSpeak(prediction);
+                                // Removed autoSpeak(prediction)
                             }
                         } else {
                             console.log('[v0] Normalization failed or invalid length');
@@ -1081,7 +1081,7 @@
                         displayPrediction(gesture);
                         if (gesture.confidence > 0.5) {
                             addToSentence(gesture.label);
-                            autoSpeak(gesture);
+                            // Removed autoSpeak(gesture)
                         }
                     }
                 } else {
@@ -1312,6 +1312,8 @@
         }
 
         function clearSentence() {
+            speechSynthesis.cancel();
+            
             if (currentSentence.trim() && !confirm('Clear the current sentence?')) {
                 return;
             }
