@@ -265,7 +265,7 @@ def stats():
 @app.route('/api/detect-vision', methods=['POST'])
 @login_required
 def detect_vision():
-    """Use AI vision model to detect hand signs with caching and rate limiting"""
+    """Use AI vision model to detect hand signs with enhanced reliability"""
     try:
         username = session.get('username')
         data = request.json
@@ -274,92 +274,62 @@ def detect_vision():
         api_key = os.environ.get('AI_API_KEY')
         provider = os.environ.get('AI_PROVIDER', 'openai').lower()
         
-        print(f"[DEBUG] ========== AI DETECTION START ==========")
-        print(f"[DEBUG] User: {username}")
-        print(f"[DEBUG] API Key present: {bool(api_key)}")
-        print(f"[DEBUG] API Key length: {len(api_key) if api_key else 0}")
-        print(f"[DEBUG] Provider: {provider}")
-        print(f"[DEBUG] Image data received: {bool(image_data)}")
-        print(f"[DEBUG] Image data length: {len(image_data) if image_data else 0}")
+        print(f"[AI-DETECT] ========== START ==========")
+        print(f"[AI-DETECT] User: {username}")
+        print(f"[AI-DETECT] Provider: {provider}")
+        print(f"[AI-DETECT] API Key configured: {'YES' if api_key else 'NO'}")
+        print(f"[AI-DETECT] Image received: {'YES' if image_data else 'NO'}")
         
         if not image_data:
-            print("[ERROR] No image data provided")
-            return jsonify({"error": "Missing image data"}), 400
+            print("[AI-DETECT] ERROR: No image data in request")
+            return jsonify({"label": "error: no image data", "confidence": 0}), 400
             
         if not api_key:
-            print("[ERROR] AI_API_KEY not configured")
-            return jsonify({"error": "AI_API_KEY environment variable not configured. Please add your API key in project settings."}), 500
+            print("[AI-DETECT] ERROR: API key not configured")
+            return jsonify({"label": "error: api key missing", "confidence": 0}), 500
         
-        current_time = time.time()
-        if username in LAST_API_CALL:
-            time_since_last = current_time - LAST_API_CALL[username]
-            if time_since_last < MIN_API_INTERVAL:
-                wait_time = int(MIN_API_INTERVAL - time_since_last)
-                print(f"[DEBUG] Rate limited: wait {wait_time} seconds")
-                return jsonify({
-                    "error": f"Please wait {wait_time} seconds before next request (rate limiting)"
-                }), 429
+        # Strip data URL prefix if present
+        if 'base64,' in image_data:
+            image_data = image_data.split('base64,')[1]
+            print(f"[AI-DETECT] Stripped base64 prefix")
         
-        cache_key = f"{username}_{hash(image_data[:100])}"
-        if cache_key in AI_CACHE:
-            cached_result, cached_time = AI_CACHE[cache_key]
-            if current_time - cached_time < AI_CACHE_DURATION:
-                print(f"[DEBUG] Returning cached result")
-                return jsonify(cached_result)
+        print(f"[AI-DETECT] Image size: {len(image_data)} characters")
+        print(f"[AI-DETECT] Calling AI provider: {provider}")
         
-        # Remove data URL prefix if present
-        if ',' in image_data:
-            image_data = image_data.split(',')[1]
-            print(f"[DEBUG] Stripped data URL prefix, new length: {len(image_data)}")
-        
-        LAST_API_CALL[username] = current_time
-        
-        print(f"[DEBUG] Calling {provider} API...")
-        if provider == 'openai':
-            response = call_openai_vision(image_data, api_key)
-        elif provider == 'anthropic':
-            response = call_anthropic_vision(image_data, api_key)
+        # Call appropriate AI provider
+        if provider == 'openai' or provider == 'gpt':
+            result = call_openai_vision(image_data, api_key)
+        elif provider == 'anthropic' or provider == 'claude':
+            result = call_anthropic_vision(image_data, api_key)
         elif provider == 'groq':
-            response = call_groq_vision(image_data, api_key)
+            result = call_groq_vision(image_data, api_key)
         else:
-            print(f"[ERROR] Unsupported provider: {provider}")
-            return jsonify({"error": f"Unsupported AI provider: {provider}"}), 400
+            print(f"[AI-DETECT] ERROR: Unknown provider '{provider}'")
+            return jsonify({"label": f"error: unknown provider {provider}", "confidence": 0}), 400
         
-        print(f"[DEBUG] AI response: {response}")
-        
-        AI_CACHE[cache_key] = (response, current_time)
-        
-        if len(AI_CACHE) > 100:
-            AI_CACHE.clear()
-        
-        print(f"[DEBUG] ========== AI DETECTION SUCCESS ==========")
-        return jsonify(response)
+        print(f"[AI-DETECT] SUCCESS: {result}")
+        print(f"[AI-DETECT] ========== END ==========")
+        return jsonify(result)
     
     except Exception as e:
-        print(f"[ERROR] ========== AI DETECTION FAILED ==========")
-        print(f"[ERROR] Exception type: {type(e).__name__}")
-        print(f"[ERROR] Exception message: {str(e)}")
+        error_type = type(e).__name__
+        error_msg = str(e)
+        print(f"[AI-DETECT] ========== EXCEPTION ==========")
+        print(f"[AI-DETECT] Type: {error_type}")
+        print(f"[AI-DETECT] Message: {error_msg}")
         import traceback
         traceback.print_exc()
         
-        error_msg = str(e)
-        if '429' in error_msg or 'Too Many Requests' in error_msg:
-            return jsonify({
-                "error": "API rate limit exceeded. Please wait 30-60 seconds and try again."
-            }), 429
-        elif '401' in error_msg or 'Unauthorized' in error_msg:
-            return jsonify({
-                "error": "Invalid API key. Check AI_API_KEY environment variable."
-            }), 401
-        else:
-            return jsonify({"error": f"Detection failed: {error_msg}"}), 500
+        # Return user-friendly error
+        return jsonify({
+            "label": f"error: {error_msg[:100]}",
+            "confidence": 0
+        }), 500
 
 
 def call_openai_vision(image_base64, api_key):
-    """Call OpenAI GPT-4 Vision API"""
-    import requests
-    
-    print("[DEBUG] Calling OpenAI Vision API...")
+    """Call OpenAI GPT-4 Vision with simplified prompt"""
+    print("[AI-DETECT] >>> OpenAI API call starting...")
     
     url = "https://api.openai.com/v1/chat/completions"
     headers = {
@@ -368,53 +338,51 @@ def call_openai_vision(image_base64, api_key):
     }
     
     payload = {
-        "model": "gpt-4o",
+        "model": "gpt-4o-mini",  # Using mini for faster/cheaper responses
         "messages": [
             {
                 "role": "user",
                 "content": [
                     {
                         "type": "text",
-                        "text": "Analyze this image and identify the hand sign being shown. If it's a letter of the alphabet (A-Z), respond with ONLY that single letter. If it's a gesture like thumbs-up, peace sign, ok sign, pointing, fist, or open palm, respond with the gesture name in lowercase. If no clear hand sign is visible, respond with 'none'. Be concise - respond with just one word or letter."
+                        "text": "What hand gesture is shown in this image? Reply with ONE word only: thumbs-up, peace, okay, pointing, fist, open-palm, wave, or none."
                     },
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/jpeg;base64,{image_base64}"
+                            "url": f"data:image/jpeg;base64,{image_base64}",
+                            "detail": "low"  # Using low detail for faster processing
                         }
                     }
                 ]
             }
         ],
-        "max_tokens": 10,
-        "temperature": 0.3
+        "max_tokens": 20,
+        "temperature": 0
     }
     
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        print(f"[DEBUG] OpenAI response status: {response.status_code}")
+        print("[AI-DETECT] >>> Sending request to OpenAI...")
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        print(f"[AI-DETECT] >>> Response status: {response.status_code}")
         
-        if response.status_code == 429:
-            error_data = response.json()
-            print(f"[ERROR] Rate limited by OpenAI: {error_data}")
-            raise requests.exceptions.HTTPError(f"429 Client Error: Too Many Requests for url: {url}")
+        if not response.ok:
+            error_text = response.text
+            print(f"[AI-DETECT] >>> ERROR response: {error_text}")
+            response.raise_for_status()
         
-        response.raise_for_status()
         result = response.json()
-        
         label = result['choices'][0]['message']['content'].strip().lower()
-        print(f"[DEBUG] OpenAI detected: {label}")
+        
+        print(f"[AI-DETECT] >>> OpenAI detected: '{label}'")
         
         return {
             "label": label,
-            "confidence": 0.95,
+            "confidence": 0.90,
             "provider": "openai"
         }
-    except requests.exceptions.RequestException as e:
-        print(f"[ERROR] OpenAI API request failed: {str(e)}")
-        if hasattr(e, 'response') and e.response is not None:
-            print(f"[ERROR] Response status: {e.response.status_code}")
-            print(f"[ERROR] Response body: {e.response.text}")
+    except Exception as e:
+        print(f"[AI-DETECT] >>> OpenAI failed: {str(e)}")
         raise
 
 
