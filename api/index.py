@@ -191,26 +191,35 @@ def logout():
 def detect_vision():
     """Use AI vision model to detect hand signs"""
     try:
+        username = session.get('username')
         data = request.json
-        image_data = data.get('image')  # base64 encoded image
+        image_data = data.get('image')
         
         api_key = os.environ.get('AI_API_KEY')
         provider = os.environ.get('AI_PROVIDER', 'openai').lower()
         
-        print(f"[DEBUG] API Key configured: {bool(api_key)}")
+        print(f"[DEBUG] ========== AI DETECTION START ==========")
+        print(f"[DEBUG] User: {username}")
+        print(f"[DEBUG] API Key present: {bool(api_key)}")
+        print(f"[DEBUG] API Key length: {len(api_key) if api_key else 0}")
         print(f"[DEBUG] Provider: {provider}")
+        print(f"[DEBUG] Image data received: {bool(image_data)}")
+        print(f"[DEBUG] Image data length: {len(image_data) if image_data else 0}")
         
         if not image_data:
+            print("[ERROR] No image data provided")
             return jsonify({"error": "Missing image data"}), 400
             
         if not api_key:
-            return jsonify({"error": "AI_API_KEY environment variable not configured on server. Please contact administrator."}), 500
+            print("[ERROR] AI_API_KEY not configured")
+            return jsonify({"error": "AI_API_KEY environment variable not configured. Please add your API key in project settings."}), 500
         
         # Remove data URL prefix if present
         if ',' in image_data:
             image_data = image_data.split(',')[1]
+            print(f"[DEBUG] Stripped data URL prefix, new length: {len(image_data)}")
         
-        # Prepare API request based on provider
+        print(f"[DEBUG] Calling {provider} API...")
         if provider == 'openai':
             response = call_openai_vision(image_data, api_key)
         elif provider == 'anthropic':
@@ -218,15 +227,35 @@ def detect_vision():
         elif provider == 'groq':
             response = call_groq_vision(image_data, api_key)
         else:
+            print(f"[ERROR] Unsupported provider: {provider}")
             return jsonify({"error": f"Unsupported AI provider: {provider}"}), 400
         
+        print(f"[DEBUG] AI response: {response}")
+        print(f"[DEBUG] ========== AI DETECTION SUCCESS ==========")
         return jsonify(response)
     
     except Exception as e:
-        print(f"[ERROR] AI detection failed: {str(e)}")
+        print(f"[ERROR] ========== AI DETECTION FAILED ==========")
+        print(f"[ERROR] Exception type: {type(e).__name__}")
+        print(f"[ERROR] Exception message: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": f"AI detection failed: {str(e)}"}), 500
+        
+        error_msg = str(e)
+        if '429' in error_msg or 'Too Many Requests' in error_msg:
+            return jsonify({
+                "error": "API rate limit exceeded. Wait 30-60 seconds and try again."
+            }), 429
+        elif '401' in error_msg or 'Unauthorized' in error_msg:
+            return jsonify({
+                "error": "Invalid API key. Check AI_API_KEY in environment variables."
+            }), 401
+        elif 'timeout' in error_msg.lower():
+            return jsonify({
+                "error": "API request timed out. Please try again."
+            }), 408
+        else:
+            return jsonify({"error": f"Detection failed: {error_msg}"}), 500
 
 
 def call_openai_vision(image_base64, api_key):

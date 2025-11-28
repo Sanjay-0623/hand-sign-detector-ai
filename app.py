@@ -274,39 +274,47 @@ def detect_vision():
         api_key = os.environ.get('AI_API_KEY')
         provider = os.environ.get('AI_PROVIDER', 'openai').lower()
         
-        print(f"[DEBUG] API Key configured: {bool(api_key)}")
-        print(f"[DEBUG] Provider: {provider}")
+        print(f"[DEBUG] ========== AI DETECTION START ==========")
         print(f"[DEBUG] User: {username}")
+        print(f"[DEBUG] API Key present: {bool(api_key)}")
+        print(f"[DEBUG] API Key length: {len(api_key) if api_key else 0}")
+        print(f"[DEBUG] Provider: {provider}")
+        print(f"[DEBUG] Image data received: {bool(image_data)}")
+        print(f"[DEBUG] Image data length: {len(image_data) if image_data else 0}")
         
         if not image_data:
+            print("[ERROR] No image data provided")
             return jsonify({"error": "Missing image data"}), 400
             
         if not api_key:
-            return jsonify({"error": "AI_API_KEY environment variable not configured. Please add your OpenAI API key in Vercel project settings."}), 500
+            print("[ERROR] AI_API_KEY not configured")
+            return jsonify({"error": "AI_API_KEY environment variable not configured. Please add your API key in project settings."}), 500
         
         current_time = time.time()
         if username in LAST_API_CALL:
             time_since_last = current_time - LAST_API_CALL[username]
             if time_since_last < MIN_API_INTERVAL:
                 wait_time = int(MIN_API_INTERVAL - time_since_last)
+                print(f"[DEBUG] Rate limited: wait {wait_time} seconds")
                 return jsonify({
-                    "error": f"Please wait {wait_time} seconds before making another AI detection request to avoid rate limiting."
+                    "error": f"Please wait {wait_time} seconds before next request (rate limiting)"
                 }), 429
         
-        cache_key = f"{username}_{hash(image_data[:100])}"  # Use partial hash for cache key
+        cache_key = f"{username}_{hash(image_data[:100])}"
         if cache_key in AI_CACHE:
             cached_result, cached_time = AI_CACHE[cache_key]
             if current_time - cached_time < AI_CACHE_DURATION:
-                print(f"[DEBUG] Returning cached result for {username}")
+                print(f"[DEBUG] Returning cached result")
                 return jsonify(cached_result)
         
         # Remove data URL prefix if present
         if ',' in image_data:
             image_data = image_data.split(',')[1]
+            print(f"[DEBUG] Stripped data URL prefix, new length: {len(image_data)}")
         
         LAST_API_CALL[username] = current_time
         
-        # Call appropriate API
+        print(f"[DEBUG] Calling {provider} API...")
         if provider == 'openai':
             response = call_openai_vision(image_data, api_key)
         elif provider == 'anthropic':
@@ -314,32 +322,37 @@ def detect_vision():
         elif provider == 'groq':
             response = call_groq_vision(image_data, api_key)
         else:
+            print(f"[ERROR] Unsupported provider: {provider}")
             return jsonify({"error": f"Unsupported AI provider: {provider}"}), 400
+        
+        print(f"[DEBUG] AI response: {response}")
         
         AI_CACHE[cache_key] = (response, current_time)
         
         if len(AI_CACHE) > 100:
-            cutoff_time = current_time - AI_CACHE_DURATION
-            AI_CACHE.clear()  # Simple cleanup
+            AI_CACHE.clear()
         
+        print(f"[DEBUG] ========== AI DETECTION SUCCESS ==========")
         return jsonify(response)
     
     except Exception as e:
-        print(f"[ERROR] AI detection failed: {str(e)}")
+        print(f"[ERROR] ========== AI DETECTION FAILED ==========")
+        print(f"[ERROR] Exception type: {type(e).__name__}")
+        print(f"[ERROR] Exception message: {str(e)}")
         import traceback
         traceback.print_exc()
         
         error_msg = str(e)
         if '429' in error_msg or 'Too Many Requests' in error_msg:
             return jsonify({
-                "error": "OpenAI rate limit exceeded. Please wait 30-60 seconds before trying again. Consider using KNN mode instead for real-time detection."
+                "error": "API rate limit exceeded. Please wait 30-60 seconds and try again."
             }), 429
         elif '401' in error_msg or 'Unauthorized' in error_msg:
             return jsonify({
-                "error": "Invalid API key. Please check your AI_API_KEY environment variable."
+                "error": "Invalid API key. Check AI_API_KEY environment variable."
             }), 401
         else:
-            return jsonify({"error": f"AI detection failed: {error_msg}"}), 500
+            return jsonify({"error": f"Detection failed: {error_msg}"}), 500
 
 
 def call_openai_vision(image_base64, api_key):
