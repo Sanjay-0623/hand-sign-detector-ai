@@ -1003,6 +1003,8 @@
             }
             
             console.log('[v0] Running KNN with K =', kValue, 'on', dataset.length, 'samples');
+            console.log('[v0] Test landmarks length:', testLandmarks.length);
+            console.log('[v0] Test landmarks sample (first 5):', testLandmarks.slice(0, 5));
             
             const distances = [];
             dataset.forEach((sample, idx) => {
@@ -1013,7 +1015,7 @@
                         dist += diff * diff;
                     }
                     dist = Math.sqrt(dist);
-                    distances.push({ label: sample.label, dist });
+                    distances.push({ label: sample.label, dist, sampleIndex: idx });
                 } else {
                     console.log('[v0] Sample', idx, 'invalid - label:', sample.label, 'landmarks length:', sample.landmarks?.length);
                 }
@@ -1030,17 +1032,24 @@
             const k = Math.min(kValue, distances.length);
             const kNearest = distances.slice(0, k);
             
-            console.log('[v0] K-nearest neighbors:', kNearest);
+            console.log('[v0] K-nearest neighbors (K=' + k + '):', kNearest.map(n => ({
+                label: n.label,
+                distance: n.dist.toFixed(4),
+                sampleIndex: n.sampleIndex
+            })));
             
             const votes = {};
             kNearest.forEach(({ label }) => {
                 votes[label] = (votes[label] || 0) + 1;
             });
+            
+            console.log('[v0] Votes:', votes);
+            
             const predicted = Object.keys(votes).reduce((a, b) => votes[a] > votes[b] ? a : b);
             const nearestDist = kNearest[0].dist;
             const confidence = 1.0 / (1.0 + nearestDist);
             
-            console.log('[v0] Predicted:', predicted, 'Confidence:', confidence);
+            console.log('[v0] Predicted:', predicted, 'Confidence:', confidence.toFixed(4), 'Nearest distance:', nearestDist.toFixed(4));
             
             return { label: predicted, confidence: parseFloat(confidence.toFixed(4)) };
         }
@@ -1172,12 +1181,22 @@
                         console.error('[v0] Dataset is not an array, resetting');
                         dataset = [];
                     } else {
+                        const labelCounts = {};
+                        dataset.forEach(sample => {
+                            if (sample.label) {
+                                labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                            }
+                        });
+                        console.log('[v0] Dataset labels:', labelCounts);
+                        console.log('[v0] Total unique labels:', Object.keys(labelCounts).length);
+                        
                         if (dataset.length > 0) {
                             const firstSample = dataset[0];
                             console.log('[v0] First sample:', {
                                 label: firstSample.label,
                                 landmarksLength: firstSample.landmarks?.length,
-                                landmarksType: Array.isArray(firstSample.landmarks) ? 'array' : typeof firstSample.landmarks
+                                landmarksType: Array.isArray(firstSample.landmarks) ? 'array' : typeof firstSample.landmarks,
+                                firstFewValues: firstSample.landmarks?.slice(0, 5)
                             });
                         }
                     }
