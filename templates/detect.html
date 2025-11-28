@@ -504,46 +504,80 @@
         }
 
         async function detectNow() {
+            console.log('[v0] ========== DETECT NOW CLICKED ==========');
+            
             if (isDetecting) {
-                console.log('[v0] Detection already in progress');
+                console.log('[v0] Detection already in progress, ignoring');
                 return;
             }
             
             if (!cameraActive) {
+                console.log('[v0] Camera not active');
                 alert('Please start the camera first');
                 return;
             }
+            
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            
+            if (!video || !canvas) {
+                console.error('[v0] Video or canvas element not found');
+                alert('Camera elements not initialized');
+                return;
+            }
+            
+            console.log('[v0] Video ready state:', video.readyState);
+            console.log('[v0] Video dimensions:', video.videoWidth, 'x', video.videoHeight);
             
             isDetecting = true;
             const detectNowBtn = document.getElementById('detect-now-btn');
             if (detectNowBtn) {
                 detectNowBtn.disabled = true;
-                detectNowBtn.textContent = '⏳ Detecting...';
+                detectNowBtn.textContent = '⏳ Analyzing...';
             }
             
-            displayPrediction({ label: 'Analyzing with AI...', confidence: 0 });
+            displayPrediction({ label: 'Capturing image...', confidence: 0 });
             
             try {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
                 const imageData = captureFrame();
                 
-                console.log('[v0] Captured frame, calling AI API...');
-                console.log('[v0] Image data length:', imageData.length);
+                console.log('[v0] Captured frame for AI analysis');
+                console.log('[v0] Image data length:', imageData ? imageData.length : 0);
+                
+                if (!imageData || imageData.length < 100) {
+                    throw new Error('Failed to capture image from camera');
+                }
+                
+                displayPrediction({ label: 'Sending to AI...', confidence: 0 });
                 
                 const prediction = await detectWithAi(imageData);
                 
-                if (prediction && prediction.label && prediction.label !== 'none') {
-                    displayPrediction(prediction);
-                    currentPrediction = prediction;
-                    addToSentence(prediction.label);
-                    autoSpeak(prediction);
-                } else if (!prediction) {
-                    // Error already displayed in detectWithAi
-                    console.error('[v0] AI detection returned null');
+                console.log('[v0] AI detection complete:', prediction);
+                
+                if (prediction && prediction.label) {
+                    if (prediction.label !== 'none' && !prediction.label.includes('error') && !prediction.label.includes('failed')) {
+                        console.log('[v0] Valid hand sign detected:', prediction.label);
+                        displayPrediction(prediction);
+                        currentPrediction = prediction;
+                        addToSentence(prediction.label);
+                        autoSpeak(prediction);
+                    } else if (prediction.label === 'none') {
+                        console.log('[v0] No hand detected by AI');
+                        displayPrediction({ label: 'No hand sign detected', confidence: 0 });
+                    } else {
+                        // Error message from AI
+                        console.log('[v0] AI returned error:', prediction.label);
+                        displayPrediction(prediction);
+                    }
                 } else {
-                    displayPrediction({ label: 'No hand detected', confidence: 0 });
+                    console.error('[v0] Invalid AI response - no prediction object');
+                    displayPrediction({ label: 'AI Error: No response received', confidence: 0 });
                 }
             } catch (error) {
-                console.error('[v0] detectNow error:', error);
+                console.error('[v0] Detection error:', error);
+                console.error('[v0] Error stack:', error.stack);
                 displayPrediction({ label: 'Error: ' + error.message, confidence: 0 });
             } finally {
                 isDetecting = false;
@@ -551,12 +585,17 @@
                     detectNowBtn.disabled = false;
                     detectNowBtn.textContent = '🔍 Detect Now (AI)';
                 }
+                console.log('[v0] ========== DETECT NOW COMPLETE ==========');
             }
         }
 
         async function detectWithAi(imageData) {
             try {
-                console.log('[v0] Calling AI vision API...');
+                console.log('[v0] ========== AI API CALL START ==========');
+                console.log('[v0] Sending request to /api/detect-vision');
+                console.log('[v0] Image data length:', imageData.length);
+                console.log('[v0] Image data prefix:', imageData.substring(0, 50));
+                
                 const response = await fetch('/api/detect-vision', {
                     method: 'POST',
                     headers: {
@@ -567,34 +606,70 @@
                     })
                 });
                 
-                console.log('[v0] AI API response status:', response.status);
+                console.log('[v0] Response status:', response.status);
+                console.log('[v0] Response ok:', response.ok);
+                console.log('[v0] Response headers:', Object.fromEntries(response.headers));
+                
+                const responseText = await response.text();
+                console.log('[v0] Response body:', responseText);
                 
                 if (!response.ok) {
-                    const error = await response.json();
-                    console.error('[v0] AI API error response:', error);
+                    let errorMsg = 'AI detection failed';
+                    try {
+                        const error = JSON.parse(responseText);
+                        errorMsg = error.error || errorMsg;
+                    } catch (e) {
+                        errorMsg = responseText || errorMsg;
+                    }
                     
-                    displayPrediction({ 
-                        label: error.error || 'AI detection failed', 
-                        confidence: 0 
-                    });
-                    return null;
+                    console.error('[v0] AI API error:', errorMsg);
+                    
+                    return {
+                        label: errorMsg,
+                        confidence: 0
+                    };
                 }
                 
-                const result = await response.json();
-                console.log('[v0] AI detection result:', result);
-                lastAiResult = result; // Cache successful result
+                const result = JSON.parse(responseText);
+                console.log('[v0] AI result parsed:', result);
                 
+                if (!result) {
+                    console.error('[v0] Result is null or undefined');
+                    return {
+                        label: 'AI returned empty response',
+                        confidence: 0
+                    };
+                }
+                
+                if (!result.label) {
+                    console.error('[v0] Result missing label field:', result);
+                    return {
+                        label: 'AI response missing label',
+                        confidence: 0
+                    };
+                }
+                
+                result.label = result.label.trim().toLowerCase();
+                
+                if (result.confidence === undefined) {
+                    result.confidence = 0.95;
+                }
+                
+                lastAiResult = result;
+                console.log('[v0] ========== AI API CALL SUCCESS ==========');
                 return result;
+                
             } catch (error) {
-                console.error('[v0] AI detection error:', error);
-                displayPrediction({ label: 'Network Error: ' + error.message, confidence: 0 });
-                return null;
+                console.error('[v0] ========== AI API CALL FAILED ==========');
+                console.error('[v0] Exception type:', error.name);
+                console.error('[v0] Exception message:', error.message);
+                console.error('[v0] Exception stack:', error.stack);
+                
+                return {
+                    label: 'Network error: ' + error.message,
+                    confidence: 0
+                };
             }
-        }
-
-        function captureFrame() {
-            const canvas = document.getElementById('canvas');
-            return canvas.toDataURL('image/jpeg', 0.8);
         }
 
         async function initializeMediaPipe() {
@@ -893,20 +968,35 @@
                 return;
             }
             
-            if (prediction) {
+            console.log('[v0] Displaying prediction:', prediction);
+            
+            if (prediction && prediction.label) {
                 const conf = (prediction.confidence * 100).toFixed(1);
+                const isError = prediction.label.toLowerCase().includes('error') || 
+                              prediction.label.toLowerCase().includes('failed') ||
+                              prediction.confidence === 0;
+                
+                const labelStyle = isError ? 'color: #ef4444;' : 'color: #3b82f6;';
+                
                 box.innerHTML = `
-                    <div class="prediction-label">${prediction.label}</div>
+                    <div class="prediction-label" style="${labelStyle}">${prediction.label}</div>
                     <div class="prediction-confidence">Confidence: ${conf}%</div>
-                    <div class="prediction-text">Detected: <strong>${prediction.label.toUpperCase()}</strong></div>
+                    <div class="prediction-text" style="margin-top: 8px; ${isError ? 'color: #fca5a5;' : 'color: #6ee7b7;'}">
+                        Detected: <strong>${prediction.label.toUpperCase()}</strong>
+                    </div>
                 `;
+                
                 const speakBtn = document.getElementById('speak-btn');
-                if (speakBtn) speakBtn.style.display = 'block';
+                if (speakBtn) {
+                    speakBtn.style.display = (isError || prediction.label === 'none') ? 'none' : 'block';
+                }
             } else {
                 box.innerHTML = `
-                    <div class="prediction-label no-prediction">Awaiting hand...</div>
-                    <div class="prediction-confidence">Confidence: —</div>
-                    <div class="prediction-text"></div>
+                    <div class="prediction-label no-prediction">Click "Detect Now" to analyze</div>
+                    <div class="prediction-confidence">Confidence: 0.0%</div>
+                    <div class="prediction-text" style="margin-top: 8px; color: #94a3b8;">
+                        Detected: <strong>CLICK "DETECT NOW" TO ANALYZE</strong>
+                    </div>
                 `;
                 const speakBtn = document.getElementById('speak-btn');
                 if (speakBtn) speakBtn.style.display = 'none';
@@ -1096,6 +1186,35 @@
             lastAddedChar = '';
             lastAddTime = 0;
             updateSentenceDisplay();
+        }
+
+        function captureFrame() {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            
+            if (!video || !canvas) {
+                console.error('[v0] Video or canvas element not found for capture');
+                return null;
+            }
+            
+            const width = video.videoWidth || 1280;
+            const height = video.videoHeight || 720;
+            
+            console.log('[v0] Capturing frame - video size:', width, 'x', height);
+            
+            const captureCanvas = document.createElement('canvas');
+            captureCanvas.width = width;
+            captureCanvas.height = height;
+            const ctx = captureCanvas.getContext('2d');
+            
+            ctx.drawImage(video, 0, 0, width, height);
+            
+            const imageData = captureCanvas.toDataURL('image/jpeg', 0.95);
+            
+            console.log('[v0] Frame captured, data URL length:', imageData.length);
+            console.log('[v0] Data URL prefix:', imageData.substring(0, 50));
+            
+            return imageData;
         }
     </script>
 </body>
