@@ -203,6 +203,28 @@
             margin-bottom: 8px;
         }
 
+        .dataset-item-info {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex: 1;
+        }
+
+        .dataset-item .delete-btn {
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: background 0.2s;
+        }
+
+        .dataset-item .delete-btn:hover {
+            background: #b91c1c;
+        }
+
         .dataset-item .label {
             font-weight: 600;
             color: #3b82f6;
@@ -427,8 +449,11 @@
             Object.entries(counts).forEach(([label, count]) => {
                 html += `
                     <div class="dataset-item">
-                        <span class="label">${label}</span>
-                        <span class="count">${count} sample${count !== 1 ? 's' : ''}</span>
+                        <div class="dataset-item-info">
+                            <span class="label">${label}</span>
+                            <span class="count">${count} sample${count !== 1 ? 's' : ''}</span>
+                        </div>
+                        <button class="delete-btn" onclick="deleteLabel('${label}')">Delete</button>
                     </div>
                 `;
             });
@@ -665,6 +690,21 @@
                 dataset = [];
                 saveDataset();
                 showAlert('Dataset cleared', 'success');
+            }
+        }
+
+        // Delete specific label from dataset
+        function deleteLabel(label) {
+            const count = dataset.filter(sample => sample.label === label).length;
+            
+            if (confirm(`Are you sure you want to delete "${label}" (${count} sample${count !== 1 ? 's' : ''})?`)) {
+                const beforeLength = dataset.length;
+                dataset = dataset.filter(sample => sample.label !== label);
+                const deleted = beforeLength - dataset.length;
+                
+                saveDataset();
+                showAlert(`Deleted "${label}" (${deleted} sample${deleted !== 1 ? 's' : ''})`, 'success');
+                console.log(`[v0] Deleted label "${label}": ${deleted} samples removed`);
             }
         }
 
