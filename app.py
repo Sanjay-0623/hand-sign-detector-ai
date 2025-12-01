@@ -33,6 +33,9 @@ import secrets
 import json
 import time
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
@@ -45,6 +48,16 @@ AI_CACHE = {}  # Cache AI detection results
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+
+# Print debug info on startup
+print("=" * 50)
+print("ENVIRONMENT VARIABLES CHECK:")
+print(f"SUPABASE_URL: {'✓ Set' if SUPABASE_URL else '✗ NOT SET'}")
+print(f"SUPABASE_SERVICE_KEY: {'✓ Set' if SUPABASE_SERVICE_KEY else '✗ NOT SET'}")
+print(f"SECRET_KEY: {'✓ Set' if os.environ.get('SECRET_KEY') else '✗ Using default'}")
+if SUPABASE_URL:
+    print(f"Supabase URL: {SUPABASE_URL[:30]}...")
+print("=" * 50)
 
 def supabase_query(table, method='GET', filters=None, data=None):
     """Make direct HTTP request to Supabase REST API"""
