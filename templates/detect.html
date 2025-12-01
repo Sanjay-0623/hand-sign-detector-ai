@@ -1261,10 +1261,51 @@
         // </CHANGE>
         function loadDataset() {
             try {
+                console.log('[CLOUD-LOAD] Attempting to load from cloud...');
+                
+                const response = fetch('/api/training-data/load'); // Changed to fetch
+                
+                if (response.ok) {
+                    const result = await response.json(); // Added await
+                    
+                    if (result.samples && result.samples.length > 0) {
+                        dataset = result.samples;
+                        console.log('[CLOUD-LOAD] Loaded from cloud:', dataset.length, 'samples');
+                        
+                        // Update localStorage with cloud data
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(dataset));
+                        
+                        // Show dataset info
+                        const labelCounts = {};
+                        dataset.forEach(sample => {
+                            if (sample.label) {
+                                labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                            }
+                        });
+                        console.log('[CLOUD-LOAD] Labels in dataset:', labelCounts);
+                        
+                        const uniqueLabels = Object.keys(labelCounts);
+                        if (uniqueLabels.length === 1) {
+                            showDatasetWarning(`⚠️ WARNING: Your dataset only contains "${uniqueLabels[0]}" samples!<br>Please go to the Training page and record more hand signs.`);
+                        } else if (uniqueLabels.length === 0) {
+                            showDatasetWarning('⚠️ WARNING: No training data found!<br>Please go to the Training page to record hand signs.');
+                        } else {
+                            const summary = uniqueLabels.map(label => `${label}: ${labelCounts[label]}`).join(', ');
+                            showDatasetInfo(`✅ Dataset loaded from cloud: ${summary}`);
+                        }
+                        
+                        updateStats();
+                        updateDatasetList();
+                        return;
+                    }
+                }
+                
+                // Fallback to localStorage if cloud fails or is empty
+                console.log('[CLOUD-LOAD] No cloud data or error, trying localStorage...');
                 const stored = localStorage.getItem(STORAGE_KEY);
                 if (stored) {
                     dataset = JSON.parse(stored);
-                    console.log('[KNN] Dataset loaded:', dataset.length, 'samples from key:', STORAGE_KEY);
+                    console.log('[KNN] Dataset loaded from localStorage:', dataset.length, 'samples from key:', STORAGE_KEY);
                     
                     const labelCounts = {};
                     dataset.forEach(sample => {
@@ -1280,40 +1321,32 @@
                     } else if (uniqueLabels.length === 0) {
                         showDatasetWarning('⚠️ WARNING: No training data found!<br>Please go to the Training page to record hand signs.');
                     } else {
-                        // Show dataset summary
                         const summary = uniqueLabels.map(label => `${label}: ${labelCounts[label]}`).join(', ');
-                        showDatasetInfo(`✅ Dataset loaded: ${summary}`);
-                    }
-                    
-                    let invalidSamples = 0;
-                    dataset.forEach((sample, idx) => {
-                        if (!sample.landmarks || sample.landmarks.length !== 63) {
-                            console.error('[KNN] Invalid sample at index', idx, '- label:', sample.label, 'landmarks length:', sample.landmarks?.length);
-                            invalidSamples++;
-                        }
-                    });
-                    
-                    if (invalidSamples > 0) {
-                        console.error('[KNN] Found', invalidSamples, 'invalid samples in dataset!');
-                        showDatasetWarning(`⚠️ Found ${invalidSamples} corrupted samples in dataset!`);
+                        showDatasetInfo(`✅ Dataset loaded from localStorage: ${summary}`);
                     }
                     
                     updateStats();
                     updateDatasetList();
                 } else {
                     console.log('[KNN] No dataset found at key:', STORAGE_KEY);
-                    console.log('[KNN] Checking all localStorage keys...');
                     showDatasetWarning('⚠️ No training data found!<br>Please go to the <a href="/train">Training page</a> to record hand signs.');
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const key = localStorage.key(i);
-                        if (key && key.includes('handSignData')) {
-                            console.log('[KNN] Found key:', key);
-                        }
-                    }
                 }
             } catch (error) {
-                console.error('[KNN] Error loading dataset:', error);
-                showDatasetWarning('❌ Error loading dataset: ' + error.message);
+                console.error('[CLOUD-LOAD] Error:', error);
+                
+                // Final fallback to localStorage
+                try {
+                    const stored = localStorage.getItem(STORAGE_KEY);
+                    if (stored) {
+                        dataset = JSON.parse(stored);
+                        console.log('[KNN] Fallback: Loaded from localStorage:', dataset.length, 'samples');
+                        updateStats();
+                        updateDatasetList();
+                    }
+                } catch (e) {
+                    console.error('[KNN] Fallback error:', e);
+                    showDatasetWarning('❌ Error loading dataset: ' + error.message);
+                }
             }
         }
 

@@ -607,6 +607,171 @@ def call_groq_vision(image_base64, api_key):
         "provider": "groq"
     }
 
+
+@app.route('/api/training-data/save', methods=['POST'])
+@login_required
+def save_training_data():
+    """Save training data to Supabase"""
+    try:
+        user_id = session.get('user_id')
+        username = session.get('username')
+        data = request.json
+        samples = data.get('samples', [])
+        
+        if not samples:
+            return jsonify({"error": "No samples provided"}), 400
+        
+        print(f"[TRAINING-SAVE] Saving {len(samples)} samples for user {username}")
+        
+        # Delete existing training data for this user
+        try:
+            supabase_query('training_data', method='DELETE', filters={'user_id': user_id})
+            print(f"[TRAINING-SAVE] Cleared existing data for user {username}")
+        except Exception as e:
+            print(f"[TRAINING-SAVE] Warning: Could not clear existing data: {str(e)}")
+        
+        # Insert new samples
+        saved_count = 0
+        for sample in samples:
+            try:
+                sample_data = {
+                    'user_id': user_id,
+                    'username': username,
+                    'label': sample.get('label'),
+                    'landmarks': sample.get('landmarks')
+                }
+                supabase_query('training_data', method='POST', data=sample_data)
+                saved_count += 1
+            except Exception as e:
+                print(f"[TRAINING-SAVE] Error saving sample: {str(e)}")
+                continue
+        
+        print(f"[TRAINING-SAVE] Successfully saved {saved_count}/{len(samples)} samples")
+        return jsonify({
+            "success": True,
+            "saved": saved_count,
+            "total": len(samples)
+        })
+    
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[TRAINING-SAVE] Error: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": error_msg}), 500
+
+
+@app.route('/api/training-data/load', methods=['GET'])
+@login_required
+def load_training_data():
+    """Load training data from Supabase"""
+    try:
+        user_id = session.get('user_id')
+        username = session.get('username')
+        
+        print(f"[TRAINING-LOAD] Loading data for user {username}")
+        
+        # Get all training data for this user
+        rows = supabase_query('training_data', filters={'user_id': user_id})
+        
+        if not rows:
+            print(f"[TRAINING-LOAD] No training data found for user {username}")
+            return jsonify({"samples": []})
+        
+        # Convert to format expected by frontend
+        samples = []
+        for row in rows:
+            samples.append({
+                'label': row.get('label'),
+                'landmarks': row.get('landmarks')
+            })
+        
+        print(f"[TRAINING-LOAD] Loaded {len(samples)} samples for user {username}")
+        return jsonify({"samples": samples})
+    
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[TRAINING-LOAD] Error: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": error_msg}), 500
+
+
+@app.route('/api/training-data/delete-label', methods=['POST'])
+@login_required
+def delete_training_label():
+    """Delete all samples of a specific label from Supabase"""
+    try:
+        user_id = session.get('user_id')
+        username = session.get('username')
+        data = request.json
+        label = data.get('label')
+        
+        if not label:
+            return jsonify({"error": "No label provided"}), 400
+        
+        print(f"[TRAINING-DELETE] Deleting label '{label}' for user {username}")
+        
+        # First, get count of samples to be deleted
+        rows = supabase_query('training_data', filters={'user_id': user_id})
+        count = len([r for r in rows if r.get('label') == label])
+        
+        # Delete using direct SQL through Supabase REST API with multiple filters
+        url = f"{SUPABASE_URL}/rest/v1/training_data?user_id=eq.{user_id}&label=eq.{label}"
+        headers = {
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.delete(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        print(f"[TRAINING-DELETE] Deleted {count} samples of label '{label}'")
+        return jsonify({
+            "success": True,
+            "deleted": count,
+            "label": label
+        })
+    
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[TRAINING-DELETE] Error: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": error_msg}), 500
+
+
+@app.route('/api/training-data/clear', methods=['POST'])
+@login_required
+def clear_training_data():
+    """Clear all training data for current user from Supabase"""
+    try:
+        user_id = session.get('user_id')
+        username = session.get('username')
+        
+        print(f"[TRAINING-CLEAR] Clearing all data for user {username}")
+        
+        # Get count before deletion
+        rows = supabase_query('training_data', filters={'user_id': user_id})
+        count = len(rows) if rows else 0
+        
+        # Delete all training data for this user
+        supabase_query('training_data', method='DELETE', filters={'user_id': user_id})
+        
+        print(f"[TRAINING-CLEAR] Cleared {count} samples")
+        return jsonify({
+            "success": True,
+            "deleted": count
+        })
+    
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[TRAINING-CLEAR] Error: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": error_msg}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"""
