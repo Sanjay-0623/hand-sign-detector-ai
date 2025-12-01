@@ -1221,7 +1221,9 @@
             } else {
                 const labelCounts = {};
                 dataset.forEach(sample => {
-                    labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                    if (sample.label) {
+                        labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                    }
                 });
                 
                 html += '<h4>Samples by label:</h4><ul>';
@@ -1256,6 +1258,7 @@
             document.body.appendChild(diagDiv);
         }
 
+        // </CHANGE>
         function loadDataset() {
             try {
                 const stored = localStorage.getItem(STORAGE_KEY);
@@ -1271,6 +1274,17 @@
                     });
                     console.log('[KNN] Labels in dataset:', labelCounts);
                     
+                    const uniqueLabels = Object.keys(labelCounts);
+                    if (uniqueLabels.length === 1) {
+                        showDatasetWarning(`⚠️ WARNING: Your dataset only contains "${uniqueLabels[0]}" samples!<br>Please go to the Training page and record more hand signs.`);
+                    } else if (uniqueLabels.length === 0) {
+                        showDatasetWarning('⚠️ WARNING: No training data found!<br>Please go to the Training page to record hand signs.');
+                    } else {
+                        // Show dataset summary
+                        const summary = uniqueLabels.map(label => `${label}: ${labelCounts[label]}`).join(', ');
+                        showDatasetInfo(`✅ Dataset loaded: ${summary}`);
+                    }
+                    
                     let invalidSamples = 0;
                     dataset.forEach((sample, idx) => {
                         if (!sample.landmarks || sample.landmarks.length !== 63) {
@@ -1281,6 +1295,7 @@
                     
                     if (invalidSamples > 0) {
                         console.error('[KNN] Found', invalidSamples, 'invalid samples in dataset!');
+                        showDatasetWarning(`⚠️ Found ${invalidSamples} corrupted samples in dataset!`);
                     }
                     
                     updateStats();
@@ -1288,6 +1303,7 @@
                 } else {
                     console.log('[KNN] No dataset found at key:', STORAGE_KEY);
                     console.log('[KNN] Checking all localStorage keys...');
+                    showDatasetWarning('⚠️ No training data found!<br>Please go to the <a href="/train">Training page</a> to record hand signs.');
                     for (let i = 0; i < localStorage.length; i++) {
                         const key = localStorage.key(i);
                         if (key && key.includes('handSignData')) {
@@ -1297,7 +1313,67 @@
                 }
             } catch (error) {
                 console.error('[KNN] Error loading dataset:', error);
+                showDatasetWarning('❌ Error loading dataset: ' + error.message);
             }
+        }
+
+        function showDatasetWarning(message) {
+            let warningDiv = document.getElementById('dataset-warning');
+            if (!warningDiv) {
+                warningDiv = document.createElement('div');
+                warningDiv.id = 'dataset-warning';
+                warningDiv.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: #ef4444;
+                    color: white;
+                    padding: 15px 30px;
+                    border-radius: 8px;
+                    font-weight: bold;
+                    z-index: 10000;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    max-width: 600px;
+                    text-align: center;
+                `;
+                document.body.appendChild(warningDiv);
+            }
+            warningDiv.innerHTML = message;
+            warningDiv.style.background = '#ef4444';
+        }
+
+        function showDatasetInfo(message) {
+            let warningDiv = document.getElementById('dataset-warning');
+            if (!warningDiv) {
+                warningDiv = document.createElement('div');
+                warningDiv.id = 'dataset-warning';
+                warningDiv.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: #10b981;
+                    color: white;
+                    padding: 15px 30px;
+                    border-radius: 8px;
+                    font-weight: bold;
+                    z-index: 10000;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    max-width: 600px;
+                    text-align: center;
+                `;
+                document.body.appendChild(warningDiv);
+            }
+            warningDiv.innerHTML = message;
+            warningDiv.style.background = '#10b981';
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                warningDiv.style.opacity = '0';
+                warningDiv.style.transition = 'opacity 0.5s';
+                setTimeout(() => warningDiv.remove(), 500);
+            }, 5000);
         }
 
         function updateStats() {
