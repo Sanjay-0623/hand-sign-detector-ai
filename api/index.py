@@ -31,7 +31,21 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 MIN_API_INTERVAL = 15  # Minimum 15 seconds between API calls per user
 LAST_API_CALL = {}  # Track last API call time per user session
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL") or \
+               os.environ.get("NEON_DATABASE_URL") or \
+               os.environ.get("NEON_POSTGRES_URL") or \
+               os.environ.get("POSTGRES_URL")
+
+print("=" * 50)
+print("VERCEL DEPLOYMENT - ENV CHECK:")
+print(f"DATABASE_URL: {'✓ Set' if DATABASE_URL else '✗ NOT SET'}")
+if DATABASE_URL:
+    safe_url = DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else DATABASE_URL[:50]
+    print(f"Database: {safe_url}...")
+else:
+    neon_vars = [k for k in os.environ.keys() if 'NEON' in k or 'POSTGRES' in k or 'DATABASE' in k]
+    print(f"Available DB env vars: {neon_vars}")
+print("=" * 50)
 
 user_sessions = {}
 api_keys = {}
@@ -43,6 +57,7 @@ if DATABASE_URL:
             1, 10,
             DATABASE_URL
         )
+        print("[INFO] Neon database pool created successfully")
     except Exception as e:
         print(f"[ERROR] Failed to create database pool: {str(e)}")
 

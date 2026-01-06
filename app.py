@@ -49,7 +49,11 @@ LAST_API_CALL = {}  # Track last API call time per user session
 AI_CACHE_DURATION = 10  # Cache results for 10 seconds
 AI_CACHE = {}  # Cache AI detection results
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+# Try multiple Neon variable names (different for local vs Vercel)
+DATABASE_URL = os.environ.get("DATABASE_URL") or \
+               os.environ.get("NEON_DATABASE_URL") or \
+               os.environ.get("NEON_POSTGRES_URL") or \
+               os.environ.get("POSTGRES_URL")
 
 # Print debug info on startup
 print("=" * 50)
@@ -60,6 +64,10 @@ if DATABASE_URL:
     # Hide password in logs
     safe_url = DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else DATABASE_URL[:50]
     print(f"Database: {safe_url}...")
+else:
+    # Show which env vars are available for debugging
+    neon_vars = [k for k in os.environ.keys() if 'NEON' in k or 'POSTGRES' in k or 'DATABASE' in k]
+    print(f"Available database env vars: {neon_vars}")
 print("=" * 50)
 
 db_pool = None
