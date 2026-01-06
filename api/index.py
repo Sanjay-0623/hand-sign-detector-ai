@@ -20,6 +20,9 @@ import base64
 import json
 import requests
 import time
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import psycopg2.pool
 
 # Create Flask app
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
@@ -28,12 +31,54 @@ app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(16))
 MIN_API_INTERVAL = 15  # Minimum 15 seconds between API calls per user
 LAST_API_CALL = {}  # Track last API call time per user session
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 user_sessions = {}
 api_keys = {}
 
+db_pool = None
+if DATABASE_URL:
+    try:
+        db_pool = psycopg2.pool.SimpleConnectionPool(
+            1, 10,
+            DATABASE_URL
+        )
+    except Exception as e:
+        print(f"[ERROR] Failed to create database pool: {str(e)}")
+
+def get_db_connection():
+    """Get database connection from pool"""
+    if not db_pool:
+        raise Exception("Database not configured")
+    return db_pool.getconn()
+
+def return_db_connection(conn):
+    """Return connection to pool"""
+    if db_pool and conn:
+        db_pool.putconn(conn)
+
+def db_query(query, params=None, fetch=True):
+    """Execute database query with connection pooling"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, params)
+            if fetch:
+                result = cur.fetchall()
+                conn.commit()
+                return [dict(row) for row in result]
+            else:
+                conn.commit()
+                return None
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"[ERROR] Database query failed: {str(e)}")
+        raise
+    finally:
+        if conn:
+            return_db_connection(conn)
 
 # ===== AUTHENTICATION HELPERS =====
 def login_required(f):
@@ -50,7 +95,7 @@ def get_current_user():
     """Get current logged-in user"""
     if 'user_id' in session:
         try:
-            users = supabase_query('users', filters={'id': session['user_id']})
+            users = db_query("SELECT * FROM users WHERE id = %s", (session['user_id'],))
             if users and len(users) > 0:
                 return users[0]
         except Exception as e:
@@ -79,11 +124,11 @@ def login():
         if not username or not password:
             return render_template('login.html', error='Username and password required')
 
-        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        if not DATABASE_URL:
             return render_template('login.html', error='Database not configured. Please contact administrator.')
 
         try:
-            users = supabase_query('users', filters={'username': username})
+            users = db_query("SELECT * FROM users WHERE username = %s", (username,))
             
             if not users or len(users) == 0:
                 print(f"[ERROR] User {username} not found")
@@ -126,21 +171,21 @@ def register():
         if password != confirm_password:
             return render_template('register.html', error='Passwords do not match')
 
-        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        if not DATABASE_URL:
             return render_template('register.html', error='Server error: Database not configured. Contact administrator.')
 
         try:
-            existing_users = supabase_query('users', filters={'username': username})
+            existing_users = db_query("SELECT * FROM users WHERE username = %s", (username,))
             
             if existing_users and len(existing_users) > 0:
                 print(f"[ERROR] Username {username} already exists")
                 return render_template('register.html', error='Username already exists')
             
-            new_user_data = {
-                'username': username,
-                'password': password
-            }
-            new_users = supabase_query('users', method='POST', data=new_user_data)
+            # Insert new user
+            new_users = db_query(
+                "INSERT INTO users (username, password) VALUES (%s, %s) RETURNING *",
+                (username, password)
+            )
             
             if not new_users or len(new_users) == 0:
                 raise Exception("User creation returned no data")
@@ -551,40 +596,3 @@ def handler(event, context):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
-
-
-def supabase_query(table, method='GET', filters=None, data=None):
-    """Make direct HTTP request to Supabase REST API"""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        raise Exception("Supabase credentials not configured")
-    
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=representation"
-    }
-    
-    # Add filters to URL
-    if filters:
-        params = []
-        for key, value in filters.items():
-            params.append(f"{key}=eq.{value}")
-        url = f"{url}?{'&'.join(params)}"
-    
-    try:
-        if method == 'GET':
-            response = requests.get(url, headers=headers, timeout=10)
-        elif method == 'POST':
-            response = requests.post(url, headers=headers, json=data, timeout=10)
-        elif method == 'PATCH':
-            response = requests.patch(url, headers=headers, json=data, timeout=10)
-        elif method == 'DELETE':
-            response = requests.delete(url, headers=headers, timeout=10)
-        
-        response.raise_for_status()
-        return response.json() if response.text else []
-    except requests.exceptions.RequestException as e:
-        print(f"[ERROR] Supabase HTTP request failed: {str(e)}")
-        raise

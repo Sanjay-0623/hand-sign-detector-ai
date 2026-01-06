@@ -34,6 +34,9 @@ import json
 import time
 import requests
 from dotenv import load_dotenv
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import psycopg2.pool
 
 load_dotenv()
 
@@ -46,54 +49,63 @@ LAST_API_CALL = {}  # Track last API call time per user session
 AI_CACHE_DURATION = 10  # Cache results for 10 seconds
 AI_CACHE = {}  # Cache AI detection results
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # Print debug info on startup
 print("=" * 50)
 print("ENVIRONMENT VARIABLES CHECK:")
-print(f"SUPABASE_URL: {'✓ Set' if SUPABASE_URL else '✗ NOT SET'}")
-print(f"SUPABASE_SERVICE_KEY: {'✓ Set' if SUPABASE_SERVICE_KEY else '✗ NOT SET'}")
+print(f"DATABASE_URL: {'✓ Set' if DATABASE_URL else '✗ NOT SET'}")
 print(f"SECRET_KEY: {'✓ Set' if os.environ.get('SECRET_KEY') else '✗ Using default'}")
-if SUPABASE_URL:
-    print(f"Supabase URL: {SUPABASE_URL[:30]}...")
+if DATABASE_URL:
+    # Hide password in logs
+    safe_url = DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else DATABASE_URL[:50]
+    print(f"Database: {safe_url}...")
 print("=" * 50)
 
-def supabase_query(table, method='GET', filters=None, data=None):
-    """Make direct HTTP request to Supabase REST API"""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        raise Exception("Supabase credentials not configured")
-    
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=representation"
-    }
-    
-    # Add filters to URL
-    if filters:
-        params = []
-        for key, value in filters.items():
-            params.append(f"{key}=eq.{value}")
-        url = f"{url}?{'&'.join(params)}"
-    
+db_pool = None
+if DATABASE_URL:
     try:
-        if method == 'GET':
-            response = requests.get(url, headers=headers, timeout=10)
-        elif method == 'POST':
-            response = requests.post(url, headers=headers, json=data, timeout=10)
-        elif method == 'PATCH':
-            response = requests.patch(url, headers=headers, json=data, timeout=10)
-        elif method == 'DELETE':
-            response = requests.delete(url, headers=headers, timeout=10)
-        
-        response.raise_for_status()
-        return response.json() if response.text else []
-    except requests.exceptions.RequestException as e:
-        print(f"[ERROR] Supabase HTTP request failed: {str(e)}")
+        db_pool = psycopg2.pool.SimpleConnectionPool(
+            1, 10,  # min and max connections
+            DATABASE_URL
+        )
+        print("[INFO] Neon database pool created successfully")
+    except Exception as e:
+        print(f"[ERROR] Failed to create database pool: {str(e)}")
+
+def get_db_connection():
+    """Get database connection from pool"""
+    if not db_pool:
+        raise Exception("Database not configured")
+    return db_pool.getconn()
+
+def return_db_connection(conn):
+    """Return connection to pool"""
+    if db_pool and conn:
+        db_pool.putconn(conn)
+
+def db_query(query, params=None, fetch=True):
+    """Execute database query with connection pooling"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, params)
+            if fetch:
+                result = cur.fetchall()
+                conn.commit()
+                return [dict(row) for row in result]
+            else:
+                conn.commit()
+                return None
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"[ERROR] Database query failed: {str(e)}")
         raise
+    finally:
+        if conn:
+            return_db_connection(conn)
 
 # ===== AUTHENTICATION HELPERS =====
 def login_required(f):
@@ -110,7 +122,7 @@ def get_current_user():
     """Get current logged-in user"""
     if 'user_id' in session:
         try:
-            users = supabase_query('users', filters={'id': session['user_id']})
+            users = db_query("SELECT * FROM users WHERE id = %s", (session['user_id'],))
             if users and len(users) > 0:
                 return users[0]
         except Exception as e:
@@ -139,11 +151,11 @@ def login():
         if not username or not password:
             return render_template('login.html', error='Username and password required')
 
-        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        if not DATABASE_URL:
             return render_template('login.html', error='Database not configured. Please contact administrator.')
 
         try:
-            users = supabase_query('users', filters={'username': username})
+            users = db_query("SELECT * FROM users WHERE username = %s", (username,))
             
             if not users or len(users) == 0:
                 print(f"[ERROR] User {username} not found in database")
@@ -186,21 +198,21 @@ def register():
         if password != confirm_password:
             return render_template('register.html', error='Passwords do not match')
 
-        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        if not DATABASE_URL:
             return render_template('register.html', error='Server configuration error: Database not configured. Please contact administrator.')
 
         try:
-            existing_users = supabase_query('users', filters={'username': username})
+            existing_users = db_query("SELECT * FROM users WHERE username = %s", (username,))
             
             if existing_users and len(existing_users) > 0:
                 print(f"[ERROR] Username {username} already exists")
                 return render_template('register.html', error='Username already exists')
             
-            new_user_data = {
-                'username': username,
-                'password': password
-            }
-            new_users = supabase_query('users', method='POST', data=new_user_data)
+            # Insert new user
+            new_users = db_query(
+                "INSERT INTO users (username, password) VALUES (%s, %s) RETURNING *",
+                (username, password)
+            )
             
             if not new_users or len(new_users) == 0:
                 raise Exception("User creation returned no data")
@@ -262,8 +274,8 @@ def stats():
     user = get_current_user()
     total_users = 0
     try:
-        users = supabase_query('users')
-        total_users = len(users) if users else 0
+        result = db_query("SELECT COUNT(*) as count FROM users")
+        total_users = result[0]['count'] if result else 0
     except Exception as e:
         print(f"[ERROR] Failed to get user count: {str(e)}")
     
@@ -611,166 +623,87 @@ def call_groq_vision(image_base64, api_key):
 @app.route('/api/training-data/save', methods=['POST'])
 @login_required
 def save_training_data():
-    """Save training data to Supabase"""
+    """Save training data to Neon database"""
     try:
         user_id = session.get('user_id')
-        username = session.get('username')
         data = request.json
-        samples = data.get('samples', [])
+        label = data.get('label')
+        landmarks = data.get('landmarks')
         
-        if not samples:
-            return jsonify({"error": "No samples provided"}), 400
+        if not label or not landmarks:
+            return jsonify({"success": False, "error": "Missing label or landmarks"}), 400
         
-        print(f"[TRAINING-SAVE] Saving {len(samples)} samples for user {username}")
+        db_query(
+            "INSERT INTO training_data (user_id, label, landmarks) VALUES (%s, %s, %s)",
+            (user_id, label, json.dumps(landmarks)),
+            fetch=False
+        )
         
-        # Delete existing training data for this user
-        try:
-            supabase_query('training_data', method='DELETE', filters={'user_id': user_id})
-            print(f"[TRAINING-SAVE] Cleared existing data for user {username}")
-        except Exception as e:
-            print(f"[TRAINING-SAVE] Warning: Could not clear existing data: {str(e)}")
-        
-        # Insert new samples
-        saved_count = 0
-        for sample in samples:
-            try:
-                sample_data = {
-                    'user_id': user_id,
-                    'username': username,
-                    'label': sample.get('label'),
-                    'landmarks': sample.get('landmarks')
-                }
-                supabase_query('training_data', method='POST', data=sample_data)
-                saved_count += 1
-            except Exception as e:
-                print(f"[TRAINING-SAVE] Error saving sample: {str(e)}")
-                continue
-        
-        print(f"[TRAINING-SAVE] Successfully saved {saved_count}/{len(samples)} samples")
-        return jsonify({
-            "success": True,
-            "saved": saved_count,
-            "total": len(samples)
-        })
-    
+        return jsonify({"success": True, "message": "Training data saved"})
     except Exception as e:
-        error_msg = str(e)
-        print(f"[TRAINING-SAVE] Error: {error_msg}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": error_msg}), 500
+        print(f"[ERROR] Save training data failed: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/training-data/load', methods=['GET'])
 @login_required
 def load_training_data():
-    """Load training data from Supabase"""
+    """Load training data from Neon database"""
     try:
         user_id = session.get('user_id')
-        username = session.get('username')
         
-        print(f"[TRAINING-LOAD] Loading data for user {username}")
+        data = db_query(
+            "SELECT label, landmarks FROM training_data WHERE user_id = %s ORDER BY created_at",
+            (user_id,)
+        )
         
-        # Get all training data for this user
-        rows = supabase_query('training_data', filters={'user_id': user_id})
-        
-        if not rows:
-            print(f"[TRAINING-LOAD] No training data found for user {username}")
-            return jsonify({"samples": []})
-        
-        # Convert to format expected by frontend
-        samples = []
-        for row in rows:
-            samples.append({
-                'label': row.get('label'),
-                'landmarks': row.get('landmarks')
-            })
-        
-        print(f"[TRAINING-LOAD] Loaded {len(samples)} samples for user {username}")
-        return jsonify({"samples": samples})
-    
+        return jsonify({"success": True, "data": data})
     except Exception as e:
-        error_msg = str(e)
-        print(f"[TRAINING-LOAD] Error: {error_msg}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": error_msg}), 500
+        print(f"[ERROR] Load training data failed: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route('/api/training-data/delete-label', methods=['POST'])
+@app.route('/api/training-data/delete', methods=['POST'])
 @login_required
 def delete_training_label():
-    """Delete all samples of a specific label from Supabase"""
+    """Delete all training data for a specific label"""
     try:
         user_id = session.get('user_id')
-        username = session.get('username')
         data = request.json
         label = data.get('label')
         
         if not label:
-            return jsonify({"error": "No label provided"}), 400
+            return jsonify({"success": False, "error": "Missing label"}), 400
         
-        print(f"[TRAINING-DELETE] Deleting label '{label}' for user {username}")
+        db_query(
+            "DELETE FROM training_data WHERE user_id = %s AND label = %s",
+            (user_id, label),
+            fetch=False
+        )
         
-        # First, get count of samples to be deleted
-        rows = supabase_query('training_data', filters={'user_id': user_id})
-        count = len([r for r in rows if r.get('label') == label])
-        
-        # Delete using direct SQL through Supabase REST API with multiple filters
-        url = f"{SUPABASE_URL}/rest/v1/training_data?user_id=eq.{user_id}&label=eq.{label}"
-        headers = {
-            "apikey": SUPABASE_SERVICE_KEY,
-            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.delete(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        print(f"[TRAINING-DELETE] Deleted {count} samples of label '{label}'")
-        return jsonify({
-            "success": True,
-            "deleted": count,
-            "label": label
-        })
-    
+        return jsonify({"success": True, "message": f"Deleted training data for '{label}'"})
     except Exception as e:
-        error_msg = str(e)
-        print(f"[TRAINING-DELETE] Error: {error_msg}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": error_msg}), 500
+        print(f"[ERROR] Delete training data failed: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/training-data/clear', methods=['POST'])
 @login_required
 def clear_training_data():
-    """Clear all training data for current user from Supabase"""
+    """Clear all training data for the current user"""
     try:
         user_id = session.get('user_id')
-        username = session.get('username')
         
-        print(f"[TRAINING-CLEAR] Clearing all data for user {username}")
+        db_query(
+            "DELETE FROM training_data WHERE user_id = %s",
+            (user_id,),
+            fetch=False
+        )
         
-        # Get count before deletion
-        rows = supabase_query('training_data', filters={'user_id': user_id})
-        count = len(rows) if rows else 0
-        
-        # Delete all training data for this user
-        supabase_query('training_data', method='DELETE', filters={'user_id': user_id})
-        
-        print(f"[TRAINING-CLEAR] Cleared {count} samples")
-        return jsonify({
-            "success": True,
-            "deleted": count
-        })
-    
+        return jsonify({"success": True, "message": "All training data cleared"})
     except Exception as e:
-        error_msg = str(e)
-        print(f"[TRAINING-CLEAR] Error: {error_msg}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": error_msg}), 500
+        print(f"[ERROR] Clear training data failed: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
