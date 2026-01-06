@@ -17,9 +17,184 @@ Real-time hand gesture detection with MediaPipe & KNN classifier. Browser-based 
 
 ## Quick Start
 
+
+## Database Setup
+
+This application uses **Supabase** (PostgreSQL) to store user accounts and training data. Follow these steps to set up the database:
+
+### Option 1: Automatic Setup (Recommended)
+
+The easiest way is to connect the Supabase integration in v0 or Vercel, which automatically configures the database and environment variables.
+
+### Option 2: Manual Supabase Setup
+
+**Step 1: Create Supabase Account**
+
+1. Go to https://supabase.com
+2. Click "Start your project"
+3. Sign up with GitHub, Google, or email
+4. Verify your email if required
+
+**Step 2: Create New Project**
+
+1. Click "New Project" in your Supabase dashboard
+2. Fill in project details:
+   - **Name**: `hand-sign-detector` (or your preferred name)
+   - **Database Password**: Choose a strong password (save this!)
+   - **Region**: Select closest to your users
+   - **Pricing Plan**: Free tier works fine
+3. Click "Create new project"
+4. Wait 2-3 minutes for project initialization
+
+**Step 3: Get Database Credentials**
+
+1. In your Supabase project, click **Settings** (gear icon)
+2. Click **API** in the left sidebar
+3. Copy these values:
+   - **Project URL** - This is your `SUPABASE_URL`
+   - **anon public** key - This is `SUPABASE_ANON_KEY`
+   - **service_role** key - Click "Reveal" and copy this as `SUPABASE_SERVICE_ROLE_KEY`
+
+**Step 4: Create Database Tables**
+
+You have two options to create the required tables:
+
+**Option A: Using Supabase SQL Editor (Easiest)**
+
+1. In Supabase dashboard, click **SQL Editor** in left sidebar
+2. Click **New query**
+3. Copy and paste the contents of `scripts/001_create_users_table.sql`
+4. Click **Run** button
+5. Create a new query and paste contents of `scripts/create_training_data_table.sql`
+6. Click **Run** button
+
+**Option B: Using Python Script (If running locally)**
+
+1. Configure your `.env` file first (see Step 5)
+2. Run the SQL scripts:
+   ```bash
+   python -c "from app import execute_sql_file; execute_sql_file('scripts/001_create_users_table.sql')"
+   python -c "from app import execute_sql_file; execute_sql_file('scripts/create_training_data_table.sql')"
+   ```
+
+**Step 5: Configure Environment Variables**
+
+**For Local Development:**
+
+Create a `.env` file in the project root:
+
+```bash
+# Supabase Configuration
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+SUPABASE_ANON_KEY=your-anon-key-here
+
+# Flask Configuration
+SECRET_KEY=your-random-secret-key-here
+
+# Optional: AI Vision
+AI_API_KEY=your-openai-api-key
+AI_PROVIDER=openai
+```
+
+**For Vercel Deployment:**
+
+1. Go to your Vercel project dashboard
+2. Click **Settings** → **Environment Variables**
+3. Add each variable:
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_ANON_KEY`
+   - `SECRET_KEY`
+   - `AI_API_KEY` (optional)
+   - `AI_PROVIDER` (optional)
+4. Select **Production**, **Preview**, and **Development** environments
+5. Click **Save**
+6. Go to **Deployments** tab → Click "..." → **Redeploy**
+
+**Step 6: Verify Database Setup**
+
+Run the verification script to test your database connection:
+
+```bash
+python test_db_connection.py
+```
+
+You should see:
+```
+✓ Environment variables loaded
+✓ Supabase connection successful
+✓ Users table exists
+✓ Training data table exists
+```
+
+### Database Schema
+
+**users table:**
+```sql
+- id (UUID, Primary Key)
+- username (TEXT, Unique)
+- password (TEXT, Hashed)
+- created_at (TIMESTAMP)
+```
+
+**training_data table:**
+```sql
+- id (UUID, Primary Key)
+- user_id (UUID, Foreign Key → users.id)
+- username (TEXT)
+- label (TEXT) - Hand sign name
+- landmarks (JSONB) - 21-point hand coordinates
+- created_at (TIMESTAMP)
+```
+
+### Troubleshooting Database Issues
+
+**Problem: "Database not configured" error**
+
+Solution:
+1. Check environment variables are set correctly
+2. Verify `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are in `.env` (local) or Vercel dashboard (production)
+3. Restart Flask server: `python app.py`
+4. For Vercel: Redeploy after adding environment variables
+
+**Problem: "Connection refused" or timeout**
+
+Solution:
+1. Check your internet connection
+2. Verify Supabase project is active (not paused)
+3. Check Supabase status at https://status.supabase.com
+4. Verify your API keys haven't been revoked
+
+**Problem: "Table does not exist"**
+
+Solution:
+1. Run the SQL scripts in Supabase SQL Editor
+2. Verify tables exist: Go to **Table Editor** in Supabase dashboard
+3. You should see `users` and `training_data` tables
+
+**Problem: Login fails with valid credentials**
+
+Solution:
+1. Check RLS (Row Level Security) policies are set correctly
+2. Run the script `scripts/005_disable_all_rls.sql` if you're testing locally
+3. For production, ensure proper RLS policies are configured
+
+### Using PostgreSQL (Alternative to Supabase)
+
+If you prefer to use a different PostgreSQL database:
+
+1. Get your PostgreSQL connection string
+2. Update environment variables:
+   ```bash
+   DATABASE_URL=postgresql://user:password@host:port/dbname
+   ```
+3. Modify `app.py` to use `psycopg2` instead of Supabase client
+4. Run the SQL scripts against your PostgreSQL database
+
 ### Local Development
 
-\`\`\`bash
+```bash
 # 1. Install dependencies
 pip install -r requirements.txt
 
@@ -31,19 +206,35 @@ open http://localhost:5000
 
 # 4. Register a new account
 # 5. Choose Train or Detect mode from menu
-\`\`\`
+```
 
 ### Deploy to Vercel
 
-\`\`\`bash
+**⚠️ Important**: Environment variables must be configured in Vercel dashboard for the app to work!
+
+See **[VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md)** for complete step-by-step deployment instructions including:
+- Setting up Supabase environment variables
+- Configuring AI API keys
+- Troubleshooting "Database not configured" errors
+- Redeploying after changes
+
+**Quick Steps**:
+```bash
 # 1. Push to GitHub
 git push origin main
 
-# 2. Connect repo to Vercel
+# 2. Import to Vercel
 # https://vercel.com/new
 
-# 3. Vercel auto-detects Flask app and deploys
-\`\`\`
+# 3. Add environment variables in Vercel Dashboard
+# Settings → Environment Variables → Add:
+#   SUPABASE_URL=https://your-project.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY=your-key-here
+#   SECRET_KEY=any-random-string
+
+# 4. Redeploy
+# Deployments tab → Redeploy
+```
 
 ### Deploy to Replit
 
@@ -54,7 +245,7 @@ git push origin main
 
 ### Deploy to Render
 
-\`\`\`bash
+```bash
 # Create render.yaml in root:
 services:
   - type: web
@@ -65,7 +256,7 @@ services:
     envVars:
       - key: PORT
         value: 5000
-\`\`\`
+```
 
 ## How to Use
 
@@ -118,10 +309,10 @@ The app now supports **AI-powered hand sign detection** using OpenAI's GPT-4 Vis
 
 Add these to your deployment environment:
 
-\`\`\`bash
+```bash
 AI_API_KEY=sk-your-openai-api-key-here
 AI_PROVIDER=openai
-\`\`\`
+```
 
 **For Vercel:**
 - Go to your Vercel project settings
@@ -178,7 +369,7 @@ When AI Vision mode is enabled:
 
 ## Architecture
 
-\`\`\`
+```
 ┌─────────────────────────────────────┐
 │     Browser (Frontend)              │
 │  - Webcam capture                   │
@@ -198,7 +389,7 @@ When AI Vision mode is enabled:
 │  - Template serving                 │
 │  - Stats endpoint                   │
 └─────────────────────────────────────┘
-\`\`\`
+```
 
 ## Storage Model
 
@@ -279,7 +470,7 @@ If still having issues:
 
 ### File Structure
 
-\`\`\`
+```
 hand-sign-detector/
 ├── app.py                 # Local development server
 ├── api/
@@ -295,20 +486,25 @@ hand-sign-detector/
 ├── runtime.txt           # Python version for Render
 ├── Procfile              # Render startup command
 └── README.md             # This file
-\`\`\`
+```
 
 ### Environment Variables
 
 For production deployment:
 
-\`\`\`bash
+```bash
 SECRET_KEY=your-secret-key-here  # Flask session secret
 PORT=5000                         # Server port (optional)
 
 # AI Vision (optional but recommended)
 AI_API_KEY=sk-xxx                # OpenAI API key
 AI_PROVIDER=openai               # openai, anthropic, or groq
-\`\`\`
+
+# Supabase (optional for persistent storage)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-key-here
+SUPABASE_ANON_KEY=your-anon-key-here
+```
 
 ## Browser Compatibility
 
@@ -572,7 +768,7 @@ Enable touchless interactions at kiosks, ATMs, or information displays for hygie
 - Runs efficiently on CPU using TensorFlow Lite
 
 **Implementation in Project**:
-\`\`\`javascript
+```javascript
 const hands = new Hands({
   locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
 });
@@ -582,7 +778,7 @@ hands.setOptions({
   minDetectionConfidence: 0.5,
   minTrackingConfidence: 0.5
 });
-\`\`\`
+```
 
 **Why We Use It**:
 - Industry-standard hand tracking
@@ -604,14 +800,14 @@ hands.setOptions({
   4. Calculate confidence as (frequency of top label) / K
 
 **Mathematical Formula**:
-\`\`\`
+```
 Distance = √(Σ(x₁ᵢ - x₂ᵢ)²)
 
 where x₁, x₂ are landmark coordinate vectors (63 dimensions)
-\`\`\`
+```
 
 **Implementation in Project**:
-\`\`\`javascript
+```javascript
 function detectWithKnn(landmarks) {
   const normalized = normalizeCoordinates(landmarks);
   const distances = dataset.map(sample => ({
@@ -635,7 +831,7 @@ function detectWithKnn(landmarks) {
     confidence: (votes[topLabel] / 5) * 100
   };
 }
-\`\`\`
+```
 
 **Why We Use It**:
 - Simple and interpretable
@@ -654,7 +850,7 @@ function detectWithKnn(landmarks) {
 3. **Flatten**: Convert 21 (x,y,z) coordinates to single 63-element vector
 
 **Implementation**:
-\`\`\`javascript
+```javascript
 function normalizeCoordinates(landmarks) {
   const wrist = landmarks[0];
   
@@ -679,7 +875,7 @@ function normalizeCoordinates(landmarks) {
   // Flatten to array
   return normalized.flatMap(lm => [lm.x, lm.y, lm.z]);
 }
-\`\`\`
+```
 
 **Why We Use It**:
 - Makes detection work regardless of hand size
@@ -697,7 +893,7 @@ function normalizeCoordinates(landmarks) {
 - Returns gesture name and confidence score
 
 **Implementation**:
-\`\`\`python
+```python
 response = openai_client.chat.completions.create(
     model="gpt-4o-mini",
     messages=[{
@@ -716,7 +912,7 @@ response = openai_client.chat.completions.create(
     max_tokens=50,
     temperature=0.1
 )
-\`\`\`
+```
 
 **Why We Use It**:
 - No training data required
@@ -734,7 +930,7 @@ response = openai_client.chat.completions.create(
 - Uses pattern matching to identify common gestures
 
 **Implementation**:
-\`\`\`javascript
+```javascript
 function detectGesture(landmarks) {
   const fingers = {
     thumb: isFingerExtended(landmarks, [1,2,3,4]),
@@ -756,7 +952,7 @@ function detectGesture(landmarks) {
   
   // ... more gesture patterns
 }
-\`\`\`
+```
 
 **Why We Use It**:
 - Completely free (no API costs)
@@ -776,7 +972,7 @@ function detectGesture(landmarks) {
 - Use transfer learning (ResNet, MobileNet) for faster training
 
 **Example Architecture**:
-\`\`\`
+```
 Input Image (224x224x3)
     ↓
 Conv2D (32 filters) + ReLU
@@ -794,7 +990,7 @@ Dense (128 units) + ReLU
 Dropout (0.5)
     ↓
 Dense (num_classes) + Softmax
-\`\`\`
+```
 
 **Advantages**:
 - Very high accuracy (98-99%)
@@ -821,7 +1017,7 @@ Dense (num_classes) + Softmax
 - Classify based on trajectory, not just static pose
 
 **Example Architecture**:
-\`\`\`
+```
 Input Sequence (timesteps × 63 features)
     ↓
 LSTM (64 units, return_sequences=True)
@@ -831,7 +1027,7 @@ Dropout (0.3)
 LSTM (32 units)
     ↓
 Dense (num_classes) + Softmax
-\`\`\`
+```
 
 **Advantages**:
 - Recognizes dynamic gestures (waves, swipes)
@@ -857,12 +1053,12 @@ Dense (num_classes) + Softmax
 - Multi-class classification using one-vs-rest approach
 
 **Mathematical Formulation**:
-\`\`\`
+```
 Maximize: Σαᵢ - (1/2)ΣΣαᵢαⱼyᵢyⱼK(xᵢ,xⱼ)
 Subject to: 0 ≤ αᵢ ≤ C, Σαᵢyᵢ = 0
 
 where K(x,y) is the kernel function
-\`\`\`
+```
 
 **Advantages**:
 - Works well with high-dimensional data
