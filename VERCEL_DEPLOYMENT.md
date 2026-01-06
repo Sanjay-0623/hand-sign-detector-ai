@@ -5,7 +5,7 @@
 ### Prerequisites
 - GitHub account
 - Vercel account (free)
-- Supabase account with your database configured
+- Neon database (already configured via integration)
 
 ### Step-by-Step Instructions
 
@@ -49,17 +49,17 @@ After the first deployment:
 **Required Variables:**
 
 ```
-SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+DATABASE_URL=postgresql://user:password@host.neon.tech/dbname?sslmode=require
 SECRET_KEY=any-random-secret-string
 ```
 
-**How to get Supabase credentials:**
-- Go to https://supabase.com/dashboard
-- Select your project
-- Go to **Settings** → **API**
-- Copy **"Project URL"** → Use as `SUPABASE_URL`
-- Click **"Reveal"** next to **"service_role"** → Use as `SUPABASE_SERVICE_ROLE_KEY`
+**How to get Neon DATABASE_URL:**
+- Option 1: Already set via Neon integration (check Environment Variables)
+- Option 2: Get manually from https://console.neon.tech
+  - Select your project
+  - Go to **Dashboard**
+  - Copy the connection string from "Connection Details"
+  - Use the **pooled connection** string
 
 **Optional Variables (for AI Vision detection):**
 
@@ -103,10 +103,11 @@ Wait 1-2 minutes for the deployment to complete.
 **Problem:** Environment variables are not set or not loaded
 
 **Solutions:**
-1. Verify environment variables are added in Settings → Environment Variables
-2. Make sure you clicked "Save" for each variable
+1. Verify DATABASE_URL is added in Settings → Environment Variables
+2. Make sure you clicked "Save" for the variable
 3. Redeploy the app (changes only apply after redeployment)
 4. Check that you selected all three environments (Production, Preview, Development)
+5. Verify DATABASE_URL includes `?sslmode=require` at the end
 
 ### Error: "Build failed"
 
@@ -123,18 +124,19 @@ Wait 1-2 minutes for the deployment to complete.
 **Problem:** Different database or environment variables
 
 **Solutions:**
-1. Make sure the `SUPABASE_URL` on Vercel matches your local `.env` file
-2. Verify you're using the same Supabase project
-3. Check that users exist in the Supabase database you're connecting to
+1. Make sure the DATABASE_URL on Vercel matches your local `.env` file
+2. Verify you're using the same Neon project
+3. Check that users exist in the Neon database you're connecting to
+4. Run a test query in Neon's SQL Editor to verify the users table has data
 
 ### Training data not syncing across devices
 
 **Problem:** Cloud storage not working
 
 **Solutions:**
-1. Verify `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set correctly
-2. Check that the `training_data` table exists in your Supabase database
-3. Run the SQL script: `scripts/create_training_data_table.sql` in Supabase SQL Editor
+1. Verify DATABASE_URL is set correctly
+2. Check that the `training_data` table exists in your Neon database
+3. Check Vercel deployment logs for database errors
 
 ### AI Detection not working on Vercel
 
@@ -145,6 +147,15 @@ Wait 1-2 minutes for the deployment to complete.
 2. Add `AI_PROVIDER=openai` environment variable
 3. Redeploy the application
 4. Alternatively, use the free KNN or Rule-Based detection methods
+
+### Database connection timeouts
+
+**Problem:** Connection pool exhausted or slow queries
+
+**Solutions:**
+1. Use the **pooled connection string** from Neon (not direct connection)
+2. Check your Neon project isn't sleeping (free tier limitation)
+3. Upgrade Neon plan if you have high traffic
 
 ---
 
@@ -173,21 +184,32 @@ When you make changes to your code:
 
 | Variable | Purpose | Required | Where to Get It |
 |----------|---------|----------|-----------------|
-| `SUPABASE_URL` | Database connection URL | ✓ Yes | Supabase Dashboard → Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | Database admin key | ✓ Yes | Supabase Dashboard → Settings → API → service_role |
+| `DATABASE_URL` | Neon PostgreSQL connection | ✓ Yes | Neon Console → Dashboard → Connection Details |
 | `SECRET_KEY` | Flask session encryption | ✓ Yes | Any random string you create |
 | `AI_API_KEY` | OpenAI API for vision detection | Optional | https://platform.openai.com/api-keys |
 | `AI_PROVIDER` | AI provider name | Optional | Set to `openai` |
 
 ---
 
+## Neon Database Setup
+
+Your Neon database should already have these tables created:
+- `users` - User accounts
+- `training_data` - Hand sign training data
+
+If tables are missing, you can create them via:
+1. Neon Console → SQL Editor
+2. Run the SQL from `NEON_SETUP_GUIDE.md`
+
+---
+
 ## Security Best Practices
 
 1. **Never commit `.env` files to Git** - They contain secrets
-2. **Use service_role key only on backend** - Never expose in frontend JavaScript
+2. **Use connection pooling** - Always use Neon's pooled connection string
 3. **Rotate keys periodically** - Update in Vercel dashboard when you do
-4. **Enable Row Level Security (RLS)** in Supabase for production apps
-5. **Use different Supabase projects** for development and production
+4. **Use different Neon projects** for development and production
+5. **Monitor database usage** - Check Neon console for query performance
 
 ---
 
@@ -196,6 +218,7 @@ When you make changes to your code:
 If you encounter issues not covered here:
 
 1. Check the Vercel deployment logs in the "Deployments" tab
-2. Check your Supabase logs in the Supabase Dashboard
+2. Check your Neon logs in the Neon Console
 3. Verify environment variables are spelled correctly (case-sensitive!)
 4. Try deploying to a new Vercel project to isolate the issue
+5. Run local diagnostics: `python diagnose_and_fix.py`

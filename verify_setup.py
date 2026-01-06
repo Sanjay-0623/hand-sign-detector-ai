@@ -34,8 +34,7 @@ def check_env_variables():
     load_dotenv()
     
     required_vars = {
-        'SUPABASE_URL': os.environ.get('SUPABASE_URL'),
-        'SUPABASE_SERVICE_ROLE_KEY': os.environ.get('SUPABASE_SERVICE_ROLE_KEY'),
+        'DATABASE_URL': os.environ.get('DATABASE_URL'),
     }
     
     optional_vars = {
@@ -47,7 +46,12 @@ def check_env_variables():
     print("\nRequired Environment Variables:")
     for var, value in required_vars.items():
         if value:
-            print(f"✓ {var}: {value[:20]}...")
+            # Hide sensitive parts
+            if 'postgresql://' in value:
+                safe_value = value.split('@')[0].split(':')[:2]
+                print(f"✓ {var}: postgresql://{safe_value[1]}:***@...")
+            else:
+                print(f"✓ {var}: {value[:20]}...")
         else:
             print(f"✗ {var}: NOT SET")
             all_good = False
@@ -61,37 +65,30 @@ def check_env_variables():
     
     return all_good
 
-def test_supabase_connection():
-    """Test connection to Supabase"""
+def test_neon_connection():
+    """Test connection to Neon PostgreSQL"""
     from dotenv import load_dotenv
-    import requests
     
     load_dotenv()
     
-    supabase_url = os.environ.get('SUPABASE_URL')
-    supabase_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
+    database_url = os.environ.get('DATABASE_URL')
     
-    if not supabase_url or not supabase_key:
-        print("\n✗ Cannot test Supabase connection - credentials missing")
+    if not database_url:
+        print("\n✗ Cannot test Neon connection - DATABASE_URL missing")
         return False
     
     try:
-        # Test API endpoint
-        url = f"{supabase_url}/rest/v1/"
-        headers = {
-            "apikey": supabase_key,
-            "Authorization": f"Bearer {supabase_key}",
-        }
-        response = requests.get(url, headers=headers, timeout=5)
+        import psycopg2
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.close()
+        conn.close()
         
-        if response.status_code == 200:
-            print("\n✓ Supabase connection successful!")
-            return True
-        else:
-            print(f"\n✗ Supabase connection failed (Status: {response.status_code})")
-            return False
+        print("\n✓ Neon database connection successful!")
+        return True
     except Exception as e:
-        print(f"\n✗ Supabase connection error: {e}")
+        print(f"\n✗ Neon connection error: {e}")
         return False
 
 def main():
@@ -111,9 +108,9 @@ def main():
     if checks[-1]:  # Only if dotenv is installed
         checks.append(check_env_variables())
         
-        # Test Supabase connection
+        # Test Neon connection
         if checks[-1]:  # Only if env vars are set
-            checks.append(test_supabase_connection())
+            checks.append(test_neon_connection())
     
     print("\n" + "="*60)
     if all(checks):
@@ -125,10 +122,9 @@ def main():
         print("\nQuick Fix Guide:")
         print("1. Create .env file in project root")
         print("2. Add these lines to .env:")
-        print("   SUPABASE_URL=https://your-project.supabase.co")
-        print("   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key")
+        print("   DATABASE_URL=postgresql://user:pass@host.neon.tech/db?sslmode=require")
         print("   SECRET_KEY=any-random-string")
-        print("3. Run: pip install python-dotenv")
+        print("3. Run: pip install python-dotenv psycopg2-binary")
         print("4. Run this script again: python verify_setup.py")
     print("="*60)
     

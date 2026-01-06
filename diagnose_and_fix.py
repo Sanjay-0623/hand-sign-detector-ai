@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Comprehensive diagnostic tool for Hand Sign Detector database configuration
-Run this to identify and fix database connection issues
+Run this to identify and fix database connection issues with Neon
 """
 
 import os
@@ -54,11 +54,10 @@ def check_env_file():
         print_error(".env file does NOT exist")
         print("\nTo fix:")
         print("  1. Create a file named '.env' in the project root")
-        print("  2. Add your Supabase credentials:")
+        print("  2. Add your Neon credentials:")
         print("\nExample .env file content:")
         print("-" * 40)
-        print("SUPABASE_URL=https://your-project.supabase.co")
-        print("SUPABASE_SERVICE_ROLE_KEY=your-key-here")
+        print("DATABASE_URL=postgresql://user:pass@host.neon.tech/db?sslmode=require")
         print("SECRET_KEY=your-secret-key")
         print("-" * 40)
         return False
@@ -79,7 +78,7 @@ def check_env_file():
     
     # Check for required variables
     lines = content.strip().split('\n')
-    required_vars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SECRET_KEY']
+    required_vars = ['DATABASE_URL', 'SECRET_KEY']
     found_vars = {}
     
     for line in lines:
@@ -94,9 +93,12 @@ def check_env_file():
     all_found = True
     for var in required_vars:
         if var in found_vars:
-            # Show first 20 chars of value
-            value_preview = found_vars[var][:20] + "..." if len(found_vars[var]) > 20 else found_vars[var]
-            print_success(f"{var} = {value_preview}")
+            # Hide sensitive info
+            if var == 'DATABASE_URL':
+                print_success(f"{var} = postgresql://...***")
+            else:
+                value_preview = found_vars[var][:10] + "..." if len(found_vars[var]) > 10 else found_vars[var]
+                print_success(f"{var} = {value_preview}")
         else:
             print_error(f"{var} is MISSING")
             all_found = False
@@ -120,8 +122,7 @@ def check_env_loading():
     
     # Check if variables are accessible
     required_vars = {
-        'SUPABASE_URL': os.getenv('SUPABASE_URL'),
-        'SUPABASE_SERVICE_ROLE_KEY': os.getenv('SUPABASE_SERVICE_ROLE_KEY'),
+        'DATABASE_URL': os.getenv('DATABASE_URL'),
         'SECRET_KEY': os.getenv('SECRET_KEY')
     }
     
@@ -129,46 +130,71 @@ def check_env_loading():
     all_loaded = True
     for var_name, var_value in required_vars.items():
         if var_value:
-            value_preview = var_value[:20] + "..." if len(var_value) > 20 else var_value
-            print_success(f"{var_name} = {value_preview}")
+            if var_name == 'DATABASE_URL':
+                print_success(f"{var_name} = postgresql://...***")
+            else:
+                value_preview = var_value[:10] + "..." if len(var_value) > 10 else var_value
+                print_success(f"{var_name} = {value_preview}")
         else:
             print_error(f"{var_name} is NOT loaded")
             all_loaded = False
     
     return all_loaded
 
-def check_supabase_connection():
-    print_header("5. Testing Supabase Connection")
+def check_neon_connection():
+    print_header("5. Testing Neon Database Connection")
     
     try:
-        from supabase import create_client
+        import psycopg2
         from dotenv import load_dotenv
         
         load_dotenv()
         
-        url = os.getenv('SUPABASE_URL')
-        key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+        url = os.getenv('DATABASE_URL')
         
-        if not url or not key:
-            print_error("Cannot test connection - environment variables not loaded")
+        if not url:
+            print_error("Cannot test connection - DATABASE_URL not loaded")
             return False
         
-        print(f"Connecting to: {url}")
-        supabase = create_client(url, key)
+        print(f"Connecting to Neon PostgreSQL...")
+        conn = psycopg2.connect(url)
+        cursor = conn.cursor()
         
         # Try a simple query
-        response = supabase.table('users').select('id').limit(1).execute()
+        cursor.execute("SELECT version()")
+        version = cursor.fetchone()[0]
         
-        print_success("Successfully connected to Supabase!")
-        print_success("Database is configured correctly")
+        # Check tables
+        cursor.execute("""
+            SELECT table_name FROM information_schema.tables 
+            WHERE table_schema = 'public' AND table_name IN ('users', 'training_data')
+        """)
+        tables = [row[0] for row in cursor.fetchall()]
+        
+        cursor.close()
+        conn.close()
+        
+        print_success("Successfully connected to Neon!")
+        print_success(f"PostgreSQL {version.split()[1]}")
+        
+        if 'users' in tables:
+            print_success("'users' table exists")
+        else:
+            print_warning("'users' table not found")
+            
+        if 'training_data' in tables:
+            print_success("'training_data' table exists")
+        else:
+            print_warning("'training_data' table not found")
+        
         return True
         
     except Exception as e:
         print_error(f"Connection failed: {str(e)}")
         print("\nPossible issues:")
-        print("  - Invalid SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
+        print("  - Invalid DATABASE_URL")
         print("  - Network connection problem")
-        print("  - 'users' table doesn't exist in database")
+        print("  - Missing ?sslmode=require in connection string")
         return False
 
 def main():
@@ -181,7 +207,7 @@ def main():
         check_dotenv_installed(),
         check_env_file(),
         check_env_loading(),
-        check_supabase_connection()
+        check_neon_connection()
     ]
     
     print_header("DIAGNOSTIC SUMMARY")
