@@ -408,7 +408,7 @@
                         <div class="status-badge" id="status-badge">Camera Off</div>
                     </div>
                     <div class="controls">
-                        <button class="btn-primary" id="start-btn" onclick="startCamera()" disabled>Start Camera</button>
+                        <button class="btn-primary" id="start-btn" onclick="startCamera()">Start Camera</button>
                         <button class="btn-danger" id="stop-btn" onclick="stopCamera()" disabled>Stop Camera</button>
                         <!-- Added manual AI detection button -->
                         <button class="btn-success" id="detect-now-btn" onclick="detectNow()" disabled style="display: none;">🔍 Detect Now (Free)</button>
@@ -459,78 +459,227 @@
     </div>
 
     <!-- MediaPipe Scripts -->
-    <!-- Removed async to ensure scripts load before page interaction -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
     <script>
-        let cameraActive = false;
+        console.log('[v0] Script loaded, username:', '{{ username }}');
+        
+        const username = '{{ username }}';
+        const STORAGE_KEY = `hand_signs_${username}`;
+        let trainingData = [];
+        let knnClassifier = null;
         let hands = null;
         let camera = null;
+        let cameraActive = false;
         let canvasCtx = null;
-        let dataset = [];
-        let kValue = 3;
-        const username = '{{ username }}';
-        const STORAGE_KEY = `handsign_dataset_${username}`;
-        const CANVAS_WIDTH = 1280;
-        const CANVAS_HEIGHT = 720;
-        let currentPrediction = null;
-        let lastSpokenLabel = '';
-        let detectionMode = 'knn'; // 'knn' or 'ai'
-        let isDetecting = false;
-        let lastAiResult = null; // Cache last result
-        let lastDetectionTime = 0;
-        const MIN_DETECTION_INTERVAL = 15000; // 15 seconds in milliseconds
-        let mediaPipeReady = false;
+        let detectionMode = 'knn'; // Default mode
+        let lastAiResult = null;
+        let currentSentence = [];
+        const CANVAS_WIDTH = 640;
+        const CANVAS_HEIGHT = 480;
 
-        // Sentence builder variables
-        let currentSentence = '';
-        let lastAddedChar = '';
-        let lastAddTime = 0;
-        const CHAR_ADD_DELAY = 2000; // Wait 2 seconds before adding same character again
-
-        const HAND_CONNECTIONS = [
-            [0, 1], [1, 2], [2, 3], [3, 4],
-            [0, 5], [5, 6], [6, 7], [7, 8],
-            [5, 9], [9, 10], [10, 11], [11, 12],
-            [9, 13], [13, 14], [14, 15], [15, 16],
-            [13, 17], [17, 18], [18, 19], [19, 20],
-            [0, 17], [0, 13], [0, 9]
-        ];
-
-        // CHANGE: Simplified initialization that enables the button immediately
         window.addEventListener('DOMContentLoaded', () => {
             console.log('[v0] Page loaded, initializing...');
             console.log('[v0] Username:', username);
             console.log('[v0] Storage key:', STORAGE_KEY);
-            console.log('[v0] Checking MediaPipe dependencies...');
-            console.log('[v0] Hands available:', typeof Hands !== 'undefined');
-            console.log('[v0] Camera available:', typeof Camera !== 'undefined');
-            console.log('[v0] drawConnectors available:', typeof drawConnectors !== 'undefined');
-            
             loadDataset();
             updateStats();
+            initializeMediaPipe(); // This runs async in background
+            setMode(detectionMode);
             
-            // Enable start button immediately
             const startBtn = document.getElementById('start-btn');
             if (startBtn) {
                 startBtn.disabled = false;
-                console.log('[v0] Start button enabled immediately');
+                console.log('[v0] Start button enabled');
             }
-            
-            // Initialize MediaPipe in background
-            initializeMediaPipe().then(() => {
-                mediaPipeReady = true;
-                console.log('[v0] MediaPipe ready for use');
-            }).catch(err => {
-                console.error('[v0] MediaPipe initialization failed:', err);
-                // Don't show alert - user can still click and we'll handle it then
-            });
-            
-            setMode(detectionMode);
         });
 
+        async function initializeMediaPipe() {
+            try {
+                console.log('[v0] Starting MediaPipe initialization...');
+                
+                let attempts = 0;
+                while (typeof Hands === 'undefined' && attempts < 50) {
+                    console.log('[v0] Waiting for MediaPipe Hands... attempt', attempts + 1);
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    attempts++;
+                }
+                
+                if (typeof Hands === 'undefined') {
+                    console.error('[v0] MediaPipe Hands failed to load');
+                    return;
+                }
+                
+                console.log('[v0] MediaPipe Hands loaded');
+                
+                hands = new Hands({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                });
+
+                hands.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+
+                hands.onResults(onHandsResults);
+                console.log('[v0] MediaPipe Hands initialized successfully');
+            } catch (error) {
+                console.error('[v0] MediaPipe initialization error:', error);
+            }
+        }
+
+        async function startCamera() {
+            console.log('[v0] startCamera() called');
+            
+            if (cameraActive) {
+                console.log('[v0] Camera already active');
+                return;
+            }
+            
+            if (!hands) {
+                console.log('[v0] MediaPipe not ready, initializing now...');
+                await initializeMediaPipe();
+                
+                if (!hands) {
+                    alert('MediaPipe failed to load. Please refresh the page and try again.');
+                    return;
+                }
+            }
+            
+            try {
+                console.log('[v0] Requesting camera access...');
+                
+                const canvas = document.getElementById('canvas');
+                canvas.width = CANVAS_WIDTH;
+                canvas.height = CANVAS_HEIGHT;
+                canvasCtx = canvas.getContext('2d');
+                console.log('[v0] Canvas ready');
+
+                const video = document.getElementById('video');
+                
+                console.log('[v0] Using getUserMedia for camera access...');
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: CANVAS_WIDTH },
+                        height: { ideal: CANVAS_HEIGHT }
+                    }
+                });
+                
+                console.log('[v0] Camera stream obtained');
+                video.srcObject = stream;
+                
+                await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        reject(new Error('Video load timeout'));
+                    }, 5000);
+                    
+                    video.onloadedmetadata = () => {
+                        clearTimeout(timeout);
+                        console.log('[v0] Video metadata loaded');
+                        video.play().then(() => {
+                            console.log('[v0] Video playing');
+                            resolve();
+                        }).catch(err => {
+                            clearTimeout(timeout);
+                            console.error('[v0] Video play error:', err);
+                            reject(err);
+                        });
+                    };
+                });
+                
+                cameraActive = true;
+                console.log('[v0] Camera active, starting frame processing');
+                
+                document.getElementById('start-btn').disabled = true;
+                document.getElementById('stop-btn').disabled = false;
+                const statusBadge = document.querySelector('.status-badge');
+                if (statusBadge) {
+                    statusBadge.textContent = 'Camera On';
+                    statusBadge.classList.remove('inactive');
+                }
+                
+                const processFrame = async () => {
+                    if (!cameraActive) {
+                        console.log('[v0] Frame processing stopped');
+                        return;
+                    }
+                    
+                    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                        try {
+                            await hands.send({ image: video });
+                        } catch (err) {
+                            console.error('[v0] Frame processing error:', err);
+                        }
+                    }
+                    
+                    requestAnimationFrame(processFrame);
+                };
+                
+                processFrame();
+                console.log('[v0] Camera started successfully');
+                
+            } catch (error) {
+                console.error('[v0] Camera start error:', error);
+                cameraActive = false;
+                
+                let errorMessage = 'Camera access failed. ';
+                if (error.name === 'NotAllowedError') {
+                    errorMessage += 'Please allow camera permission in your browser settings.';
+                } else if (error.name === 'NotFoundError') {
+                    errorMessage += 'No camera found on your device.';
+                } else if (error.name === 'NotReadableError') {
+                    errorMessage += 'Camera is being used by another application.';
+                } else {
+                    errorMessage += error.message;
+                }
+                
+                alert(errorMessage);
+                
+                document.getElementById('start-btn').disabled = false;
+                document.getElementById('stop-btn').disabled = true;
+            }
+        }
+
+        async function stopCamera() {
+            console.log('[v0] stopCamera() called');
+            
+            try {
+                cameraActive = false;
+                
+                if (camera) {
+                    await camera.stop();
+                    camera = null;
+                }
+                
+                const video = document.getElementById('video');
+                if (video.srcObject) {
+                    video.srcObject.getTracks().forEach(track => {
+                        track.stop();
+                        console.log('[v0] Stopped track:', track.kind);
+                    });
+                    video.srcObject = null;
+                }
+                
+                document.getElementById('start-btn').disabled = false;
+                document.getElementById('stop-btn').disabled = true;
+                const statusBadge = document.querySelector('.status-badge');
+                if (statusBadge) {
+                    statusBadge.textContent = 'Camera Off';
+                    statusBadge.classList.add('inactive');
+                }
+                
+                console.log('[v0] Camera stopped successfully');
+            } catch (error) {
+                console.error('[v0] Stop camera error:', error);
+            }
+        }
+
+        // AI connection test button
         async function testAiConnection() {
             console.log('[v0] Testing AI API connection...');
             
@@ -553,11 +702,11 @@
         
         // Add test button to page on load
         window.addEventListener('load', () => {
-            const controlsDiv = document.getElementById('ai-controls-group'); // Target the new div
-            if (controlsDiv) { // Check if the div exists
+            const controlsDiv = document.getElementById('ai-controls-group');
+            if (controlsDiv) {
                 const testBtn = document.createElement('button');
                 testBtn.id = 'test-ai-btn';
-                testBtn.className = 'btn btn-info'; // Use Bootstrap-like classes
+                testBtn.className = 'btn btn-info';
                 testBtn.textContent = '🧪 Test AI Connection';
                 testBtn.onclick = testAiConnection;
                 testBtn.style.marginTop = '10px';
@@ -566,6 +715,7 @@
             }
         });
 
+        // UI update for mode selection and visibility of other buttons
         function setMode(mode) {
             detectionMode = mode;
             console.log('[v0] Detection mode set to:', mode);
@@ -577,33 +727,30 @@
             
             if (mode === 'knn') {
                 if (knnBtn) {
-                    knnBtn.classList.add('active');
-                    knnBtn.style.backgroundColor = '#3b82f6';
+                    knnBtn.style.backgroundColor = '#3b82f6'; // Active color
                 }
                 if (aiBtn) {
-                    aiBtn.classList.remove('active');
-                    aiBtn.style.backgroundColor = '#6b7280';
+                    aiBtn.style.backgroundColor = '#6b7280'; // Inactive color
                 }
                 if (detectNowBtn) detectNowBtn.style.display = 'none';
                 if (testAiBtn) testAiBtn.style.display = 'none';
-            } else {
+            } else { // AI mode
                 if (knnBtn) {
-                    knnBtn.classList.remove('active');
-                    knnBtn.style.backgroundColor = '#6b7280';
+                    knnBtn.style.backgroundColor = '#6b7280'; // Inactive color
                 }
                 if (aiBtn) {
-                    aiBtn.classList.add('active');
-                    aiBtn.style.backgroundColor = '#10b981';
+                    aiBtn.style.backgroundColor = '#10b981'; // Active color
                 }
-                if (detectNowBtn) detectNowBtn.style.display = 'none';
-                if (testAiBtn) testAiBtn.style.display = 'none';
+                // Detect Now button is enabled in startCamera if in AI mode
+                if (detectNowBtn && cameraActive) detectNowBtn.style.display = 'block';
+                if (testAiBtn) testAiBtn.style.display = 'block';
             }
             
             lastAiResult = null;
             updateModeUI(); // Call to update other UI elements based on mode
         }
 
-        // CHANGE: Show diagnostics button when in KNN mode
+        // Show diagnostics button only when in KNN mode
         function updateModeUI() {
             const diagnosticsBtn = document.getElementById('diagnostics-btn');
             if (detectionMode === 'knn') {
@@ -758,13 +905,12 @@
             console.log('[v0] Detect Now clicked');
             
             const btn = document.getElementById('detect-now-btn');
-            if (!btn || isDetecting) {
-                console.log('[v0] Already detecting or button not found');
+            if (!btn || cameraActive === false) { // Require camera to be active
+                console.log('[v0] Camera not active or button not found');
                 return;
             }
 
             try {
-                isDetecting = true;
                 btn.disabled = true;
                 btn.textContent = '⏳ Analyzing...';
                 
@@ -772,36 +918,29 @@
                 const canvas = document.getElementById('canvas');
                 const video = document.getElementById('video');
                 
-                if (!video || !canvas) {
-                    throw new Error('Video or canvas not available');
+                if (!video || !canvas || !hands || !hands.h || !hands.h.results) {
+                    throw new Error('MediaPipe or video/canvas not available');
                 }
 
                 // Get current hand landmarks from MediaPipe
-                if (hands && hands.h && hands.h.results && hands.h.results.multiHandLandmarks) {
+                if (hands.h.results.multiHandLandmarks && hands.h.results.multiHandLandmarks.length > 0) {
                     const landmarks = hands.h.results.multiHandLandmarks[0];
-                    if (landmarks) {
-                        console.log('[v0] Using MediaPipe landmarks for free gesture detection');
-                        const gesture = detectGestureFromLandmarks(landmarks);
-                        
-                        lastAiResult = gesture;
-                        displayPrediction(gesture);
-                        
-                        if (gesture.confidence > 0.5) {
-                            addToSentence(gesture.label);
-                            // Removed autoSpeak(gesture)
-                        }
-                        
-                        btn.textContent = '🔍 Detect Now (Free)';
-                        btn.disabled = false;
-                        isDetecting = false;
-                        return;
+                    console.log('[v0] Using MediaPipe landmarks for free gesture detection');
+                    const gesture = detectGestureFromLandmarks(landmarks);
+                    
+                    lastAiResult = gesture;
+                    displayPrediction(gesture);
+                    
+                    if (gesture.confidence > 0.5) {
+                        addToSentence(gesture.label);
                     }
+                    
+                } else {
+                    // Fallback: Show message if no hand detected
+                    const gesture = { label: 'No hand detected - show your hand to camera', confidence: 0 };
+                    lastAiResult = gesture;
+                    displayPrediction(gesture);
                 }
-
-                // Fallback: Show message if no hand detected
-                const gesture = { label: 'No hand detected - show your hand to camera', confidence: 0 };
-                lastAiResult = gesture;
-                displayPrediction(gesture);
                 
             } catch (error) {
                 console.error('[v0] Detect error:', error);
@@ -811,11 +950,11 @@
                 });
             } finally {
                 btn.textContent = '🔍 Detect Now (Free)';
-                btn.disabled = false;
-                isDetecting = false;
+                btn.disabled = false; // Re-enable after analysis
             }
         }
 
+        // Placeholder for KNN and AI mode switching
         function setMode(mode) {
             detectionMode = mode;
             console.log('[v0] Detection mode set to:', mode);
@@ -827,351 +966,29 @@
             
             if (mode === 'knn') {
                 if (knnBtn) {
-                    knnBtn.classList.add('active');
-                    knnBtn.style.backgroundColor = '#3b82f6';
+                    knnBtn.style.backgroundColor = '#3b82f6'; // Active color
                 }
                 if (aiBtn) {
-                    aiBtn.classList.remove('active');
-                    aiBtn.style.backgroundColor = '#6b7280';
+                    aiBtn.style.backgroundColor = '#6b7280'; // Inactive color
                 }
                 if (detectNowBtn) detectNowBtn.style.display = 'none';
                 if (testAiBtn) testAiBtn.style.display = 'none';
-            } else {
+            } else { // AI mode
                 if (knnBtn) {
-                    knnBtn.classList.remove('active');
-                    knnBtn.style.backgroundColor = '#6b7280';
+                    knnBtn.style.backgroundColor = '#6b7280'; // Inactive color
                 }
                 if (aiBtn) {
-                    aiBtn.classList.add('active');
-                    aiBtn.style.backgroundColor = '#10b981';
+                    aiBtn.style.backgroundColor = '#10b981'; // Active color
                 }
-                if (detectNowBtn) detectNowBtn.style.display = 'none';
-                if (testAiBtn) testAiBtn.style.display = 'none';
+                // Detect Now button is enabled in startCamera if in AI mode
+                if (detectNowBtn && cameraActive) detectNowBtn.style.display = 'block';
+                if (testAiBtn) testAiBtn.style.display = 'block';
             }
             
             lastAiResult = null;
             updateModeUI(); // Call to update other UI elements based on mode
         }
 
-
-        async function initializeMediaPipe() {
-            try {
-                console.log('[v0] Starting MediaPipe initialization...');
-                
-                if (typeof Hands === 'undefined' || typeof Camera === 'undefined') {
-                    console.log('[v0] MediaPipe scripts not loaded yet, waiting...');
-                }
-                
-                let attempts = 0;
-                const maxAttempts = 100; // 10 seconds total
-                while ((typeof Hands === 'undefined' || typeof Camera === 'undefined') && attempts < maxAttempts) {
-                    console.log('[v0] Waiting for MediaPipe to load... attempt', attempts + 1, 'Hands:', typeof Hands !== 'undefined', 'Camera:', typeof Camera !== 'undefined');
-                    await new Promise(resolve => setTimeout(resolve, 100));
-                    attempts++;
-                }
-                
-                if (typeof Hands === 'undefined') {
-                    console.error('[v0] MediaPipe Hands failed to load after timeout');
-                    throw new Error('MediaPipe Hands library did not load. Please check your internet connection and refresh.');
-                }
-                
-                if (typeof Camera === 'undefined') {
-                    console.error('[v0] MediaPipe Camera failed to load after timeout');
-                    throw new Error('MediaPipe Camera library did not load. Please check your internet connection and refresh.');
-                }
-                
-                console.log('[v0] MediaPipe Hands loaded successfully');
-                console.log('[v0] MediaPipe Camera loaded successfully');
-                
-                hands = new Hands({
-                    locateFile: (file) => {
-                        const url = `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-                        console.log('[v0] Loading MediaPipe file:', url);
-                        return url;
-                    }
-                });
-
-                hands.setOptions({
-                    maxNumHands: 1,
-                    modelComplexity: 1,
-                    minDetectionConfidence: 0.5,
-                    minTrackingConfidence: 0.5
-                });
-
-                hands.onResults(onHandsResults);
-                console.log('[v0] MediaPipe hands instance created and configured');
-                
-                const canvas = document.getElementById('canvas');
-                if (!canvas) {
-                    throw new Error('Canvas element not found');
-                }
-                
-                console.log('[v0] MediaPipe initialization complete');
-            } catch (error) {
-                console.error('[v0] Failed to initialize MediaPipe:', error);
-                throw error;
-            }
-        }
-
-        // CHANGE: Completely rewritten camera initialization for better mobile support
-        async function startCamera() {
-            console.log('[v0] ========== START CAMERA CALLED ==========');
-            console.log('[v0] cameraActive:', cameraActive);
-            console.log('[v0] mediaPipeReady:', mediaPipeReady);
-            console.log('[v0] hands:', hands ? 'initialized' : 'null');
-            console.log('[v0] Camera constructor:', typeof Camera !== 'undefined' ? 'available' : 'NOT AVAILABLE');
-            
-            if (cameraActive) {
-                console.log('[v0] Camera already active, returning');
-                return;
-            }
-            
-            // Initialize MediaPipe if not ready
-            if (!mediaPipeReady || !hands) {
-                console.log('[v0] MediaPipe not ready, initializing now...');
-                try {
-                    await initializeMediaPipe();
-                    mediaPipeReady = true;
-                } catch (err) {
-                    console.error('[v0] MediaPipe initialization failed during camera start:', err);
-                    alert('Failed to initialize hand detection. Please try again after refreshing the page.\n\nError: ' + err.message);
-                    return; // Stop if MediaPipe fails to initialize
-                }
-            }
-            
-            try {
-                console.log('[v0] Requesting camera access...');
-                
-                const canvas = document.getElementById('canvas');
-                const video = document.getElementById('video');
-                
-                if (!canvas || !video) {
-                    throw new Error('Video or canvas element not found');
-                }
-                
-                canvas.width = CANVAS_WIDTH;
-                canvas.height = CANVAS_HEIGHT;
-                canvasCtx = canvas.getContext('2d');
-                console.log('[v0] Canvas configured:', CANVAS_WIDTH, 'x', CANVAS_HEIGHT);
-
-                // Use getUserMedia directly (more reliable on mobile)
-                const constraints = {
-                    video: {
-                        facingMode: 'user',
-                        width: { ideal: 640 },  // Lower resolution for mobile
-                        height: { ideal: 480 }
-                    },
-                    audio: false
-                };
-                
-                console.log('[v0] Requesting camera permission with constraints:', constraints);
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                console.log('[v0] ✓ Camera access granted, stream obtained');
-                
-                video.srcObject = stream;
-                cameraActive = true; // Set cameraActive only after stream is obtained
-                
-                // Wait for video to be ready
-                await new Promise((resolve, reject) => {
-                    video.onloadedmetadata = () => {
-                        console.log('[v0] Video metadata loaded');
-                        video.play()
-                            .then(() => {
-                                console.log('[v0] ✓ Video playing');
-                                resolve();
-                            })
-                            .catch(err => {
-                                console.error('[v0] Video play failed:', err);
-                                reject(err);
-                            });
-                    };
-                    
-                    // Timeout after 5 seconds if metadata doesn't load
-                    setTimeout(() => {
-                        console.log('[v0] Video metadata load timeout');
-                        reject(new Error('Video load timeout'));
-                    }, 5000);
-                });
-                
-                // Start hand detection loop
-                console.log('[v0] Starting detection loop...');
-                const processFrame = async () => {
-                    if (!cameraActive) {
-                        console.log('[v0] Camera stopped, ending frame processing');
-                        return;
-                    }
-                    
-                    if (video.readyState === video.HAVE_ENOUGH_DATA && hands) {
-                        try {
-                            await hands.send({ image: video });
-                        } catch (err) {
-                            console.error('[v0] Frame processing error:', err);
-                        }
-                    }
-                    
-                    requestAnimationFrame(processFrame);
-                };
-                requestAnimationFrame(processFrame);
-                
-                // Update UI elements
-                const startBtn = document.getElementById('start-btn');
-                const stopBtn = document.getElementById('stop-btn');
-                
-                if (startBtn) startBtn.disabled = true;
-                if (stopBtn) stopBtn.disabled = false;
-                
-                const detectNowBtn = document.getElementById('detect-now-btn');
-                if (detectNowBtn && detectionMode === 'ai') {
-                    detectNowBtn.disabled = false;
-                }
-                updateStatusBadge(true);
-                console.log('[v0] ========== CAMERA STARTED SUCCESSFULLY ==========');
-                updateModeUI();
-            } catch (error) {
-                cameraActive = false; // Ensure cameraActive is false on error
-                console.error('[v0] ========== CAMERA ERROR ==========');
-                console.error('[v0] Error name:', error.name);
-                console.error('[v0] Error message:', error.message);
-                console.error('[v0] Error stack:', error.stack);
-                
-                let errorMessage = 'Failed to start camera: ' + error.message;
-                
-                if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-                    errorMessage = 'Camera permission denied.\n\nPlease:\n1. Allow camera access in browser settings\n2. Refresh the page\n3. Try again';
-                } else if (error.name === 'NotFoundError') {
-                    errorMessage = 'No camera found on this device.';
-                } else if (error.name === 'NotReadableError') {
-                    errorMessage = 'Camera is in use by another app.\n\nPlease close other apps and try again.';
-                } else if (error.message.includes('timeout')) {
-                    errorMessage = 'Camera took too long to start.\n\nPlease refresh and try again.';
-                }
-                
-                alert(errorMessage);
-                
-                // Re-enable start button if it exists
-                const startBtn = document.getElementById('start-btn');
-                if (startBtn) startBtn.disabled = false;
-                
-                // Ensure stop button is disabled if camera failed to start
-                const stopBtn = document.getElementById('stop-btn');
-                if (stopBtn) stopBtn.disabled = true;
-
-                // Reset status badge
-                updateStatusBadge(false);
-            }
-        }
-
-        function stopCamera() {
-            if (!cameraActive) return;
-            try {
-                if (camera) camera.stop();
-                const video = document.getElementById('video');
-                if (video.srcObject) {
-                    video.srcObject.getTracks().forEach(track => track.stop());
-                }
-                cameraActive = false;
-                document.getElementById('start-btn').disabled = false;
-                document.getElementById('stop-btn').disabled = true;
-                const detectNowBtn = document.getElementById('detect-now-btn');
-                if (detectNowBtn) {
-                    detectNowBtn.disabled = true;
-                }
-                updateStatusBadge(false);
-                updateModeUI(); // Update UI after camera stops
-            } catch (error) {
-                console.error('Error stopping camera:', error);
-            }
-        }
-
-        function updateStatusBadge(active) {
-            const badge = document.getElementById('status-badge');
-            if (active) {
-                badge.textContent = '● Live';
-                badge.classList.remove('inactive');
-            } else {
-                badge.textContent = 'Camera Off';
-                badge.classList.add('inactive');
-            }
-        }
-
-        function normalizeLandmarks(landmarks) {
-            if (!landmarks || landmarks.length !== 21) return null;
-            let coords = [];
-            landmarks.forEach(lm => {
-                coords.push([lm.x, lm.y, lm.z]);
-            });
-            const wrist = coords[0];
-            coords = coords.map(c => [c[0] - wrist[0], c[1] - wrist[1], c[2] - wrist[2]]);
-            let maxDist = 0;
-            coords.forEach(c => {
-                const dist = Math.sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
-                if (dist > maxDist) maxDist = dist;
-            });
-            if (maxDist > 0) {
-                coords = coords.map(c => [c[0] / maxDist, c[1] / maxDist, c[2] / maxDist]);
-            }
-            const flat = [];
-            coords.forEach(c => flat.push(...c));
-            return flat;
-        }
-
-        function predict(testLandmarks) {
-            if (!testLandmarks || !Array.isArray(dataset) || dataset.length === 0) {
-                console.log('[v0] Cannot predict: testLandmarks:', testLandmarks ? 'valid' : 'null', 'dataset length:', dataset.length);
-                return null;
-            }
-            
-            console.log('[v0] Running KNN with K =', kValue, 'on', dataset.length, 'samples');
-            console.log('[v0] Test landmarks length:', testLandmarks.length);
-            console.log('[v0] Test landmarks sample (first 5):', testLandmarks.slice(0, 5));
-            
-            const distances = [];
-            dataset.forEach((sample, idx) => {
-                if (sample.label && Array.isArray(sample.landmarks) && sample.landmarks.length === 63) {
-                    let dist = 0;
-                    for (let i = 0; i < 63; i++) {
-                        const diff = testLandmarks[i] - sample.landmarks[i];
-                        dist += diff * diff;
-                    }
-                    dist = Math.sqrt(dist);
-                    distances.push({ label: sample.label, dist, sampleIndex: idx });
-                } else {
-                    console.log('[v0] Sample', idx, 'invalid - label:', sample.label, 'landmarks length:', sample.landmarks?.length);
-                }
-            });
-            
-            if (distances.length === 0) {
-                console.log('[v0] No valid samples for prediction');
-                return null;
-            }
-            
-            console.log('[v0] Computed', distances.length, 'distances');
-            
-            distances.sort((a, b) => a.dist - b.dist);
-            const k = Math.min(kValue, distances.length);
-            const kNearest = distances.slice(0, k);
-            
-            console.log('[v0] K-nearest neighbors (K=' + k + '):', kNearest.map(n => ({
-                label: n.label,
-                distance: n.dist.toFixed(4),
-                sampleIndex: n.sampleIndex
-            })));
-            
-            const votes = {};
-            kNearest.forEach(({ label }) => {
-                votes[label] = (votes[label] || 0) + 1;
-            });
-            
-            console.log('[v0] Votes:', votes);
-            
-            const predicted = Object.keys(votes).reduce((a, b) => votes[a] > votes[b] ? a : b);
-            const nearestDist = kNearest[0].dist;
-            const confidence = 1.0 / (1.0 + nearestDist);
-            
-            console.log('[v0] Predicted:', predicted, 'Confidence:', confidence.toFixed(4), 'Nearest distance:', nearestDist.toFixed(4));
-            
-            return { label: predicted, confidence: parseFloat(confidence.toFixed(4)) };
-        }
 
         function onHandsResults(results) {
             try {
@@ -1182,7 +999,6 @@
                 canvasCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
                 if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                    console.log('[v0] Hand detected with', results.multiHandLandmarks[0].length, 'landmarks');
                     const landmarks = results.multiHandLandmarks[0];
                     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#3b82f6', lineWidth: 2 });
                     drawLandmarks(canvasCtx, landmarks, { color: '#06b6d4', lineWidth: 1 });
@@ -1190,26 +1006,21 @@
                     if (detectionMode === 'knn') {
                         const normalized = normalizeLandmarks(landmarks);
                         if (normalized && normalized.length === 63) {
-                            console.log('[v0] Normalized landmarks, running prediction...');
                             const prediction = predict(normalized);
-                            console.log('[v0] Prediction result:', prediction);
                             displayPrediction(prediction);
                             currentPrediction = prediction;
                             if (prediction) {
                                 addToSentence(prediction.label);
-                                // Removed autoSpeak(prediction)
                             }
                         } else {
-                            console.log('[v0] Normalization failed or invalid length');
+                            displayPrediction(null); // No valid landmarks for KNN
                         }
-                    } else {
-                        // AI mode - use free gesture detection
+                    } else { // AI Mode (Free gesture detection)
                         const gesture = detectGestureFromLandmarks(landmarks);
                         lastAiResult = gesture;
                         displayPrediction(gesture);
                         if (gesture.confidence > 0.5) {
                             addToSentence(gesture.label);
-                            // Removed autoSpeak(gesture)
                         }
                     }
                 } else {
@@ -1218,18 +1029,13 @@
                 }
                 canvasCtx.restore();
             } catch (error) {
-                console.error('[v0] onHandsResults error:', error);
+                console.error('onHandsResults error:', error);
             }
         }
 
         function displayPrediction(prediction) {
             const box = document.getElementById('prediction-box');
-            if (!box) {
-                console.error('[v0] Prediction box element not found');
-                return;
-            }
-            
-            console.log('[v0] Displaying prediction:', prediction);
+            if (!box) return;
             
             if (prediction && prediction.label) {
                 const conf = (prediction.confidence * 100).toFixed(1);
@@ -1271,19 +1077,10 @@
             speechSynthesis.speak(utterance);
         }
 
-        function autoSpeak(prediction) {
-            if (!prediction || prediction.label === lastSpokenLabel) return;
-            if (prediction.confidence < 0.6) return;
-            lastSpokenLabel = prediction.label;
-            const utterance = new SpeechSynthesisUtterance(prediction.label);
-            utterance.rate = 0.9;
-            utterance.volume = 0.7;
-            speechSynthesis.speak(utterance);
-            setTimeout(() => {
-                lastSpokenLabel = '';
-            }, 2000);
-        }
+        // Removed autoSpeak function as it's not in the updates
+        // function autoSpeak(prediction) { ... }
 
+        // Diagnostic view for KNN dataset
         function showKNNDiagnostics() {
             const diagDiv = document.createElement('div');
             diagDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;padding:20px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.3);max-width:80%;max-height:80%;overflow:auto;z-index:10000;color:black;';
@@ -1291,39 +1088,43 @@
             let html = '<h2 style="margin-top:0;">KNN Dataset Diagnostics</h2>';
             
             // Check all possible storage keys
-            html += '<h3>All localStorage keys with "handSignData":</h3><ul>';
+            html += '<h3>All localStorage keys with "hand_signs":</h3><ul>';
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key && key.includes('handSignData')) {
-                    const data = JSON.parse(localStorage.getItem(key) || '[]');
-                    html += `<li><b>${key}</b>: ${data.length} samples</li>`;
+                if (key && key.includes('hand_signs')) {
+                    try {
+                        const data = JSON.parse(localStorage.getItem(key) || '[]');
+                        html += `<li><b>${key}</b>: ${data.length} samples</li>`;
+                    } catch (e) {
+                        html += `<li><b>${key}</b>: Error parsing data</li>`;
+                    }
                 }
             }
             html += '</ul>';
             
             // Show current dataset
             html += `<h3>Current Dataset (${STORAGE_KEY}):</h3>`;
-            html += `<p>Total samples: <b>${dataset.length}</b></p>`;
+            html += `<p>Total samples: <b>${trainingData.length}</b></p>`;
             
-            if (dataset.length === 0) {
+            if (trainingData.length === 0) {
                 html += '<p style="color:red;"><b>ERROR: Dataset is empty! You need to train hand signs first.</b></p>';
             } else {
                 const labelCounts = {};
-                dataset.forEach(sample => {
+                trainingData.forEach(sample => {
                     if (sample.label) {
                         labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
                     }
                 });
                 
                 html += '<h4>Samples by label:</h4><ul>';
-                Object.entries(labelCounts).forEach(([label, count]) => {
+                Object.entries(labelCounts).sort().forEach(([label, count]) => {
                     html += `<li><b>${label}</b>: ${count} samples</li>`;
                 });
                 html += '</ul>';
                 
                 // Check if all samples have valid landmarks
                 let invalidCount = 0;
-                dataset.forEach((sample, idx) => {
+                trainingData.forEach((sample) => {
                     if (!sample.landmarks || sample.landmarks.length !== 63) {
                         invalidCount++;
                     }
@@ -1335,8 +1136,8 @@
                 
                 // Show sample data
                 html += '<h4>First 3 samples:</h4><pre style="font-size:10px;overflow:auto;max-height:200px;">';
-                dataset.slice(0, 3).forEach((sample, idx) => {
-                    html += `Sample ${idx}: ${sample.label} - Landmarks: [${sample.landmarks.slice(0, 6).map(n => n.toFixed(3)).join(', ')}...] (${sample.landmarks.length} values)\n`;
+                trainingData.slice(0, 3).forEach((sample, idx) => {
+                    html += `Sample ${idx}: ${sample.label} - Landmarks: [${sample.landmarks ? sample.landmarks.slice(0, 6).map(n => n.toFixed(3)).join(', ') : 'N/A'}...] (${sample.landmarks ? sample.landmarks.length : 0} values)\n`;
                 });
                 html += '</pre>';
             }
@@ -1347,95 +1148,70 @@
             document.body.appendChild(diagDiv);
         }
 
+        // </CHANGE>
         function loadDataset() {
             try {
                 console.log('[CLOUD-LOAD] Attempting to load from cloud...');
                 
-                const response = fetch('/api/training-data/load'); // Changed to fetch
-                
-                if (response.ok) {
-                    const result = await response.json(); // Added await
-                    
-                    if (result.samples && result.samples.length > 0) {
-                        dataset = result.samples;
-                        console.log('[CLOUD-LOAD] Loaded from cloud:', dataset.length, 'samples');
-                        
-                        // Update localStorage with cloud data
-                        localStorage.setItem(STORAGE_KEY, JSON.stringify(dataset));
-                        
-                        // Show dataset info
-                        const labelCounts = {};
-                        dataset.forEach(sample => {
-                            if (sample.label) {
-                                labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
-                            }
-                        });
-                        console.log('[CLOUD-LOAD] Labels in dataset:', labelCounts);
-                        
-                        const uniqueLabels = Object.keys(labelCounts);
-                        if (uniqueLabels.length === 1) {
-                            showDatasetWarning(`⚠️ WARNING: Your dataset only contains "${uniqueLabels[0]}" samples!<br>Please go to the Training page and record more hand signs.`);
-                        } else if (uniqueLabels.length === 0) {
-                            showDatasetWarning('⚠️ WARNING: No training data found!<br>Please go to the Training page to record hand signs.');
+                // Fetch from cloud first
+                fetch('/api/training-data/load')
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.samples && result.samples.length > 0) {
+                            trainingData = result.samples;
+                            console.log('[CLOUD-LOAD] Loaded from cloud:', trainingData.length, 'samples');
+                            
+                            // Update localStorage with cloud data
+                            localStorage.setItem(STORAGE_KEY, JSON.stringify(trainingData));
+                            
+                            updateUIForLoadedDataset();
+                            return;
                         } else {
-                            const summary = uniqueLabels.map(label => `${label}: ${labelCounts[label]}`).join(', ');
-                            showDatasetInfo(`✅ Dataset loaded from cloud: ${summary}`);
+                            console.log('[CLOUD-LOAD] No cloud data or error, falling back to localStorage.');
                         }
-                        
-                        updateStats();
-                        updateDatasetList();
-                        return;
-                    }
-                }
-                
-                // Fallback to localStorage if cloud fails or is empty
-                console.log('[CLOUD-LOAD] No cloud data or error, trying localStorage...');
-                const stored = localStorage.getItem(STORAGE_KEY);
-                if (stored) {
-                    dataset = JSON.parse(stored);
-                    console.log('[KNN] Dataset loaded from localStorage:', dataset.length, 'samples from key:', STORAGE_KEY);
-                    
-                    const labelCounts = {};
-                    dataset.forEach(sample => {
-                        if (sample.label) {
-                            labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                    })
+                    .catch(error => {
+                        console.error('[CLOUD-LOAD] Error fetching from cloud:', error);
+                        console.log('[CLOUD-LOAD] Falling back to localStorage.');
+                    })
+                    .finally(() => {
+                        // Fallback to localStorage if cloud failed or returned empty
+                        const stored = localStorage.getItem(STORAGE_KEY);
+                        if (stored) {
+                            trainingData = JSON.parse(stored);
+                            console.log('[KNN] Dataset loaded from localStorage:', trainingData.length, 'samples from key:', STORAGE_KEY);
+                            updateUIForLoadedDataset();
+                        } else {
+                            console.log('[KNN] No dataset found at key:', STORAGE_KEY);
+                            showDatasetWarning('⚠️ No training data found!<br>Please go to the <a href="/train">Training page</a> to record hand signs.');
                         }
                     });
-                    console.log('[KNN] Labels in dataset:', labelCounts);
-                    
-                    const uniqueLabels = Object.keys(labelCounts);
-                    if (uniqueLabels.length === 1) {
-                        showDatasetWarning(`⚠️ WARNING: Your dataset only contains "${uniqueLabels[0]}" samples!<br>Please go to the Training page and record more hand signs.`);
-                    } else if (uniqueLabels.length === 0) {
-                        showDatasetWarning('⚠️ WARNING: No training data found!<br>Please go to the Training page to record hand signs.');
-                    } else {
-                        const summary = uniqueLabels.map(label => `${label}: ${labelCounts[label]}`).join(', ');
-                        showDatasetInfo(`✅ Dataset loaded from localStorage: ${summary}`);
-                    }
-                    
-                    updateStats();
-                    updateDatasetList();
-                } else {
-                    console.log('[KNN] No dataset found at key:', STORAGE_KEY);
-                    showDatasetWarning('⚠️ No training data found!<br>Please go to the <a href="/train">Training page</a> to record hand gestures.');
-                }
             } catch (error) {
-                console.error('[CLOUD-LOAD] Error:', error);
-                
-                // Final fallback to localStorage
-                try {
-                    const stored = localStorage.getItem(STORAGE_KEY);
-                    if (stored) {
-                        dataset = JSON.parse(stored);
-                        console.log('[KNN] Fallback: Loaded from localStorage:', dataset.length, 'samples');
-                        updateStats();
-                        updateDatasetList();
-                    }
-                } catch (e) {
-                    console.error('[KNN] Fallback error:', e);
-                    showDatasetWarning('❌ Error loading dataset: ' + error.message);
-                }
+                console.error('[CLOUD-LOAD] General error during load:', error);
+                showDatasetWarning('❌ Error loading dataset: ' + error.message);
             }
+        }
+
+        function updateUIForLoadedDataset() {
+            const labelCounts = {};
+            trainingData.forEach(sample => {
+                if (sample.label) {
+                    labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
+                }
+            });
+            
+            const uniqueLabels = Object.keys(labelCounts);
+            if (uniqueLabels.length === 1) {
+                showDatasetWarning(`⚠️ WARNING: Your dataset only contains "${uniqueLabels[0]}" samples!<br>Please go to the Training page and record more hand signs.`);
+            } else if (uniqueLabels.length === 0) {
+                showDatasetWarning('⚠️ WARNING: No training data found!<br>Please go to the Training page to record hand signs.');
+            } else {
+                const summary = uniqueLabels.map(label => `${label}: ${labelCounts[label]}`).join(', ');
+                showDatasetInfo(`✅ Dataset loaded: ${summary}`);
+            }
+            
+            updateStats();
+            updateDatasetList();
         }
 
         function showDatasetWarning(message) {
@@ -1501,7 +1277,7 @@
             const statsDiv = document.getElementById('stats');
             if (statsDiv) {
                 let labelCounts = {};
-                dataset.forEach(sample => {
+                trainingData.forEach(sample => {
                     if (sample.label) {
                         labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
                     }
@@ -1510,7 +1286,7 @@
                 const uniqueLabels = Object.keys(labelCounts).length;
                 statsDiv.innerHTML = `
                     <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
-                        <div>Total Samples: <strong>${dataset.length}</strong></div>
+                        <div>Total Samples: <strong>${trainingData.length}</strong></div>
                         <div>Unique Labels: <strong>${uniqueLabels}</strong></div>
                         <div>K Value: <strong>${kValue}</strong></div>
                         <button id="diagnostics-btn-stats" onclick="showKNNDiagnostics()" style="padding: 5px 15px; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
@@ -1525,7 +1301,7 @@
         function updateDatasetList() {
             const list = document.getElementById('dataset-list');
             const labelCounts = {};
-            dataset.forEach(sample => {
+            trainingData.forEach(sample => {
                 if (sample.label) {
                     labelCounts[sample.label] = (labelCounts[sample.label] || 0) + 1;
                 }
@@ -1569,31 +1345,21 @@
         function addToSentence(detectedChar) {
             if (!detectedChar || detectedChar === 'none') return;
             
-            const now = Date.now();
-            // Only add if it's a different character or enough time has passed
-            if (detectedChar === lastAddedChar && (now - lastAddTime) < CHAR_ADD_DELAY) {
+            // Filter out gesture labels that aren't single characters for the sentence builder
+            // You might want to customize this list based on your trained gestures
+            const gestureLabelsToIgnore = ['open palm', 'fist', 'thumbs up', 'peace sign', 'ok sign', 'pointing', 'rock sign', 'call me', 'unknown gesture'];
+            if (gestureLabelsToIgnore.includes(detectedChar.toLowerCase())) {
                 return;
             }
-            
-            // Extract single character if AI returns full word
+
             let char = detectedChar.toLowerCase().trim();
-            // If it's a single letter, add it
-            if (char.length === 1) {
-                currentSentence += char;
-            } else {
-                // If AI returns a word/gesture name, try to extract first letter or use as-is
-                currentSentence += char + ' ';
-            }
-            
-            lastAddedChar = detectedChar;
-            lastAddTime = now;
-            
+            currentSentence.push(char);
             updateSentenceDisplay();
         }
 
         function addSpace() {
-            if (currentSentence && !currentSentence.endsWith(' ')) {
-                currentSentence += ' ';
+            if (currentSentence.length > 0 && currentSentence[currentSentence.length - 1] !== ' ') {
+                currentSentence.push(' ');
                 updateSentenceDisplay();
             }
         }
@@ -1601,8 +1367,9 @@
         function updateSentenceDisplay() {
             const display = document.getElementById('current-sentence');
             if (display) {
-                if (currentSentence.trim()) {
-                    display.textContent = currentSentence;
+                const sentenceText = currentSentence.join('');
+                if (sentenceText.trim()) {
+                    display.textContent = sentenceText;
                     display.style.color = '#10b981';
                 } else {
                     display.textContent = 'Start signing to build a sentence...';
@@ -1612,12 +1379,13 @@
         }
 
         function speakSentence() {
-            if (!currentSentence.trim()) {
+            const sentenceText = currentSentence.join('');
+            if (!sentenceText.trim()) {
                 alert('No sentence to speak!');
                 return;
             }
             
-            const utterance = new SpeechSynthesisUtterance(currentSentence);
+            const utterance = new SpeechSynthesisUtterance(sentenceText);
             utterance.rate = 0.9;
             utterance.volume = 1.0;
             speechSynthesis.speak(utterance);
@@ -1626,12 +1394,10 @@
         function clearSentence() {
             speechSynthesis.cancel();
             
-            if (currentSentence.trim() && !confirm('Clear the current sentence?')) {
+            if (currentSentence.length > 0 && !confirm('Clear the current sentence?')) {
                 return;
             }
-            currentSentence = '';
-            lastAddedChar = '';
-            lastAddTime = 0;
+            currentSentence = [];
             updateSentenceDisplay();
         }
 
@@ -1644,8 +1410,9 @@
                 return null;
             }
             
-            const width = video.videoWidth || 1280;
-            const height = video.videoHeight || 720;
+            // Use the actual video dimensions for accurate capture
+            const width = video.videoWidth || CANVAS_WIDTH;
+            const height = video.videoHeight || CANVAS_HEIGHT;
             
             console.log('[v0] Capturing frame - video size:', width, 'x', height);
             
@@ -1659,9 +1426,76 @@
             const imageData = captureCanvas.toDataURL('image/jpeg', 0.95);
             
             console.log('[v0] Frame captured, data URL length:', imageData.length);
-            console.log('[v0] Data URL prefix:', imageData.substring(0, 50));
             
             return imageData;
+        }
+
+        // KNN specific logic from original code
+        let kValue = 3; // Default k value
+        const HAND_CONNECTIONS = [
+            [0, 1], [1, 2], [2, 3], [3, 4],
+            [0, 5], [5, 6], [6, 7], [7, 8],
+            [5, 9], [9, 10], [10, 11], [11, 12],
+            [9, 13], [13, 14], [14, 15], [15, 16],
+            [13, 17], [17, 18], [18, 19], [19, 20],
+            [0, 17], [0, 13], [0, 9]
+        ];
+        
+        function normalizeLandmarks(landmarks) {
+            if (!landmarks || landmarks.length !== 21) return null;
+            let coords = [];
+            landmarks.forEach(lm => {
+                coords.push([lm.x, lm.y, lm.z]);
+            });
+            const wrist = coords[0];
+            coords = coords.map(c => [c[0] - wrist[0], c[1] - wrist[1], c[2] - wrist[2]]);
+            let maxDist = 0;
+            coords.forEach(c => {
+                const dist = Math.sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+                if (dist > maxDist) maxDist = dist;
+            });
+            if (maxDist > 0) {
+                coords = coords.map(c => [c[0] / maxDist, c[1] / maxDist, c[2] / maxDist]);
+            }
+            const flat = [];
+            coords.forEach(c => flat.push(...c));
+            return flat;
+        }
+
+        function predict(testLandmarks) {
+            if (!testLandmarks || !Array.isArray(trainingData) || trainingData.length === 0) {
+                return null;
+            }
+            
+            const distances = [];
+            trainingData.forEach((sample, idx) => {
+                if (sample.label && Array.isArray(sample.landmarks) && sample.landmarks.length === 63) {
+                    let dist = 0;
+                    for (let i = 0; i < 63; i++) {
+                        const diff = testLandmarks[i] - sample.landmarks[i];
+                        dist += diff * diff;
+                    }
+                    dist = Math.sqrt(dist);
+                    distances.push({ label: sample.label, dist, sampleIndex: idx });
+                }
+            });
+            
+            if (distances.length === 0) return null;
+            
+            distances.sort((a, b) => a.dist - b.dist);
+            const k = Math.min(kValue, distances.length);
+            const kNearest = distances.slice(0, k);
+            
+            const votes = {};
+            kNearest.forEach(({ label }) => {
+                votes[label] = (votes[label] || 0) + 1;
+            });
+            
+            const predicted = Object.keys(votes).reduce((a, b) => votes[a] > votes[b] ? a : b);
+            const nearestDist = kNearest[0].dist;
+            const confidence = 1.0 / (1.0 + nearestDist);
+            
+            return { label: predicted, confidence: parseFloat(confidence.toFixed(4)) };
         }
     </script>
 </body>
