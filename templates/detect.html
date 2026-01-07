@@ -459,9 +459,10 @@
     </div>
 
     <!-- MediaPipe Scripts -->
-    <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-    <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-    <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <!-- Removed async to ensure scripts load before page interaction -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
     <script>
         let cameraActive = false;
@@ -481,7 +482,7 @@
         let lastAiResult = null; // Cache last result
         let lastDetectionTime = 0;
         const MIN_DETECTION_INTERVAL = 15000; // 15 seconds in milliseconds
-
+        let mediaPipeReady = false;
 
         // Sentence builder variables
         let currentSentence = '';
@@ -504,7 +505,13 @@
             console.log('[v0] Storage key:', STORAGE_KEY);
             loadDataset();
             updateStats();
-            initializeMediaPipe();
+            initializeMediaPipe().then(() => {
+                mediaPipeReady = true;
+                console.log('[v0] MediaPipe ready for use');
+            }).catch(err => {
+                console.error('[v0] MediaPipe initialization failed:', err);
+                alert('Failed to initialize hand detection. Please refresh the page.');
+            });
             setMode(detectionMode); // Ensure initial mode is set correctly
         });
 
@@ -836,16 +843,16 @@
                 console.log('[v0] Starting MediaPipe initialization...');
                 
                 let attempts = 0;
-                while (typeof Hands === 'undefined' && attempts < 50) {
+                const maxAttempts = 100; // 10 seconds total
+                while (typeof Hands === 'undefined' && attempts < maxAttempts) {
                     console.log('[v0] Waiting for MediaPipe Hands to load... attempt', attempts + 1);
                     await new Promise(resolve => setTimeout(resolve, 100));
                     attempts++;
                 }
                 
                 if (typeof Hands === 'undefined') {
-                    console.error('[v0] MediaPipe Hands failed to load after 5 seconds');
-                    alert('Failed to load MediaPipe. Please refresh the page.');
-                    return;
+                    console.error('[v0] MediaPipe Hands failed to load after timeout');
+                    throw new Error('MediaPipe Hands library did not load. Please check your internet connection and refresh.');
                 }
                 
                 console.log('[v0] MediaPipe Hands loaded successfully');
@@ -862,34 +869,50 @@
                 });
 
                 hands.onResults(onHandsResults);
+                console.log('[v0] MediaPipe hands instance created and configured');
+                
+                const canvas = document.getElementById('canvas');
+                if (!canvas) {
+                    throw new Error('Canvas element not found');
+                }
+                
                 console.log('[v0] MediaPipe initialization complete');
             } catch (error) {
                 console.error('[v0] Failed to initialize MediaPipe:', error);
-                alert('MediaPipe initialization failed: ' + error.message);
+                throw error;
             }
         }
 
         async function startCamera() {
+            console.log('[v0] startCamera called, cameraActive:', cameraActive, 'mediaPipeReady:', mediaPipeReady);
+            
             if (cameraActive) {
                 console.log('[v0] Camera already active');
                 return;
             }
             
-            if (!hands) {
-                console.error('[v0] MediaPipe Hands not initialized');
-                alert('MediaPipe not ready. Please wait and try again.');
+            if (!mediaPipeReady || !hands) {
+                console.error('[v0] MediaPipe not ready yet');
+                alert('Hand detection is still loading. Please wait a moment and try again.');
                 return;
             }
             
             try {
                 console.log('[v0] Starting camera...');
                 const canvas = document.getElementById('canvas');
+                const video = document.getElementById('video');
+                
+                if (!canvas || !video) {
+                    throw new Error('Video or canvas element not found');
+                }
+                
                 canvas.width = CANVAS_WIDTH;
                 canvas.height = CANVAS_HEIGHT;
                 canvasCtx = canvas.getContext('2d');
                 console.log('[v0] Canvas configured:', CANVAS_WIDTH, 'x', CANVAS_HEIGHT);
 
-                const video = document.getElementById('video');
+                cameraActive = true;
+                console.log('[v0] Set cameraActive to true');
 
                 try {
                     console.log('[v0] Attempting MediaPipe Camera...');
@@ -912,6 +935,11 @@
                     console.log('[v0] Camera started with MediaPipe Camera');
                 } catch (e) {
                     console.log('[v0] MediaPipe Camera failed, using getUserMedia fallback:', e);
+                    
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('Your browser does not support camera access');
+                    }
+                    
                     const stream = await navigator.mediaDevices.getUserMedia({ 
                         video: { 
                             facingMode: 'user',
@@ -956,7 +984,6 @@
                     requestAnimationFrame(processFrame);
                 }
 
-                cameraActive = true;
                 document.getElementById('start-btn').disabled = true;
                 document.getElementById('stop-btn').disabled = false;
                 const detectNowBtn = document.getElementById('detect-now-btn');
@@ -967,8 +994,19 @@
                 console.log('[v0] Camera initialization complete, cameraActive =', cameraActive);
                 updateModeUI(); // Update UI after camera starts
             } catch (error) {
+                cameraActive = false;
                 console.error('[v0] Camera error:', error);
-                alert('Failed to start camera: ' + error.message + '\n\nPlease check camera permissions and try again.');
+                
+                let errorMessage = 'Failed to start camera: ' + error.message;
+                if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                    errorMessage = 'Camera permission denied. Please allow camera access in your browser settings and try again.';
+                } else if (error.name === 'NotFoundError') {
+                    errorMessage = 'No camera found. Please connect a camera and try again.';
+                } else if (error.name === 'NotReadableError') {
+                    errorMessage = 'Camera is already in use by another application. Please close other apps and try again.';
+                }
+                
+                alert(errorMessage);
             }
         }
 
