@@ -408,7 +408,7 @@
                         <div class="status-badge" id="status-badge">Camera Off</div>
                     </div>
                     <div class="controls">
-                        <button class="btn-primary" id="start-btn" onclick="startCamera()">Start Camera</button>
+                        <button class="btn-primary" id="start-btn" onclick="startCamera()" disabled>Start Camera</button>
                         <button class="btn-danger" id="stop-btn" onclick="stopCamera()" disabled>Stop Camera</button>
                         <!-- Added manual AI detection button -->
                         <button class="btn-success" id="detect-now-btn" onclick="detectNow()" disabled style="display: none;">🔍 Detect Now (Free)</button>
@@ -503,16 +503,26 @@
             console.log('[v0] Page loaded, initializing...');
             console.log('[v0] Username:', username);
             console.log('[v0] Storage key:', STORAGE_KEY);
+            console.log('[v0] Checking MediaPipe dependencies...');
+            console.log('[v0] Hands available:', typeof Hands !== 'undefined');
+            console.log('[v0] Camera available:', typeof Camera !== 'undefined');
+            console.log('[v0] drawConnectors available:', typeof drawConnectors !== 'undefined');
+            
             loadDataset();
             updateStats();
             initializeMediaPipe().then(() => {
                 mediaPipeReady = true;
                 console.log('[v0] MediaPipe ready for use');
+                const startBtn = document.getElementById('start-btn');
+                if (startBtn) {
+                    startBtn.disabled = false;
+                    console.log('[v0] Start button enabled');
+                }
             }).catch(err => {
                 console.error('[v0] MediaPipe initialization failed:', err);
-                alert('Failed to initialize hand detection. Please refresh the page.');
+                alert('Failed to initialize hand detection. Please refresh the page.\n\nError: ' + err.message);
             });
-            setMode(detectionMode); // Ensure initial mode is set correctly
+            setMode(detectionMode);
         });
 
         async function testAiConnection() {
@@ -842,10 +852,14 @@
             try {
                 console.log('[v0] Starting MediaPipe initialization...');
                 
+                if (typeof Hands === 'undefined' || typeof Camera === 'undefined') {
+                    console.log('[v0] MediaPipe scripts not loaded yet, waiting...');
+                }
+                
                 let attempts = 0;
                 const maxAttempts = 100; // 10 seconds total
-                while (typeof Hands === 'undefined' && attempts < maxAttempts) {
-                    console.log('[v0] Waiting for MediaPipe Hands to load... attempt', attempts + 1);
+                while ((typeof Hands === 'undefined' || typeof Camera === 'undefined') && attempts < maxAttempts) {
+                    console.log('[v0] Waiting for MediaPipe to load... attempt', attempts + 1, 'Hands:', typeof Hands !== 'undefined', 'Camera:', typeof Camera !== 'undefined');
                     await new Promise(resolve => setTimeout(resolve, 100));
                     attempts++;
                 }
@@ -855,10 +869,20 @@
                     throw new Error('MediaPipe Hands library did not load. Please check your internet connection and refresh.');
                 }
                 
+                if (typeof Camera === 'undefined') {
+                    console.error('[v0] MediaPipe Camera failed to load after timeout');
+                    throw new Error('MediaPipe Camera library did not load. Please check your internet connection and refresh.');
+                }
+                
                 console.log('[v0] MediaPipe Hands loaded successfully');
+                console.log('[v0] MediaPipe Camera loaded successfully');
                 
                 hands = new Hands({
-                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                    locateFile: (file) => {
+                        const url = `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                        console.log('[v0] Loading MediaPipe file:', url);
+                        return url;
+                    }
                 });
 
                 hands.setOptions({
@@ -884,10 +908,14 @@
         }
 
         async function startCamera() {
-            console.log('[v0] startCamera called, cameraActive:', cameraActive, 'mediaPipeReady:', mediaPipeReady);
+            console.log('[v0] ========== START CAMERA CALLED ==========');
+            console.log('[v0] cameraActive:', cameraActive);
+            console.log('[v0] mediaPipeReady:', mediaPipeReady);
+            console.log('[v0] hands:', hands ? 'initialized' : 'null');
+            console.log('[v0] Camera constructor:', typeof Camera !== 'undefined' ? 'available' : 'NOT AVAILABLE');
             
             if (cameraActive) {
-                console.log('[v0] Camera already active');
+                console.log('[v0] Camera already active, returning');
                 return;
             }
             
@@ -898,9 +926,12 @@
             }
             
             try {
-                console.log('[v0] Starting camera...');
+                console.log('[v0] Starting camera initialization...');
                 const canvas = document.getElementById('canvas');
                 const video = document.getElementById('video');
+                
+                console.log('[v0] Video element:', video ? 'found' : 'NOT FOUND');
+                console.log('[v0] Canvas element:', canvas ? 'found' : 'NOT FOUND');
                 
                 if (!canvas || !video) {
                     throw new Error('Video or canvas element not found');
@@ -915,31 +946,39 @@
                 console.log('[v0] Set cameraActive to true');
 
                 try {
-                    console.log('[v0] Attempting MediaPipe Camera...');
+                    console.log('[v0] Attempting MediaPipe Camera initialization...');
                     
-                    // Check if Camera is available
                     if (typeof Camera === 'undefined') {
                         throw new Error('MediaPipe Camera not loaded');
                     }
                     
+                    console.log('[v0] Creating Camera instance...');
                     camera = new Camera(video, {
                         onFrame: async () => {
                             if (cameraActive && hands) {
-                                await hands.send({ image: video });
+                                try {
+                                    await hands.send({ image: video });
+                                } catch (err) {
+                                    console.error('[v0] Error sending frame to hands:', err);
+                                }
                             }
                         },
                         width: CANVAS_WIDTH,
                         height: CANVAS_HEIGHT
                     });
+                    
+                    console.log('[v0] Starting Camera...');
                     await camera.start();
-                    console.log('[v0] Camera started with MediaPipe Camera');
+                    console.log('[v0] ✓ Camera started successfully with MediaPipe Camera');
                 } catch (e) {
-                    console.log('[v0] MediaPipe Camera failed, using getUserMedia fallback:', e);
+                    console.log('[v0] MediaPipe Camera failed, using getUserMedia fallback');
+                    console.error('[v0] MediaPipe Camera error details:', e);
                     
                     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                         throw new Error('Your browser does not support camera access');
                     }
                     
+                    console.log('[v0] Requesting camera permission...');
                     const stream = await navigator.mediaDevices.getUserMedia({ 
                         video: { 
                             facingMode: 'user',
@@ -947,23 +986,24 @@
                             height: { ideal: CANVAS_HEIGHT }
                         } 
                     });
-                    video.srcObject = stream;
-                    console.log('[v0] getUserMedia stream obtained');
+                    console.log('[v0] ✓ Camera permission granted, stream obtained');
                     
-                    await new Promise((resolve) => {
+                    video.srcObject = stream;
+                    
+                    await new Promise((resolve, reject) => {
                         video.onloadedmetadata = () => {
                             console.log('[v0] Video metadata loaded');
                             video.play().then(() => {
-                                console.log('[v0] Video playing');
+                                console.log('[v0] ✓ Video playing');
                                 resolve();
                             }).catch(err => {
                                 console.error('[v0] Video play failed:', err);
-                                resolve();
+                                reject(err);
                             });
                         };
                     });
                     
-                    console.log('[v0] Video ready, starting frame processing loop');
+                    console.log('[v0] Starting frame processing loop...');
                     
                     const processFrame = async () => {
                         if (!cameraActive) {
@@ -982,20 +1022,28 @@
                         requestAnimationFrame(processFrame);
                     };
                     requestAnimationFrame(processFrame);
+                    console.log('[v0] ✓ Frame processing loop started');
                 }
 
-                document.getElementById('start-btn').disabled = true;
-                document.getElementById('stop-btn').disabled = false;
+                const startBtn = document.getElementById('start-btn');
+                const stopBtn = document.getElementById('stop-btn');
+                
+                if (startBtn) startBtn.disabled = true;
+                if (stopBtn) stopBtn.disabled = false;
+                
                 const detectNowBtn = document.getElementById('detect-now-btn');
                 if (detectNowBtn && detectionMode === 'ai') {
                     detectNowBtn.disabled = false;
                 }
                 updateStatusBadge(true);
-                console.log('[v0] Camera initialization complete, cameraActive =', cameraActive);
-                updateModeUI(); // Update UI after camera starts
+                console.log('[v0] ========== CAMERA STARTED SUCCESSFULLY ==========');
+                updateModeUI();
             } catch (error) {
                 cameraActive = false;
-                console.error('[v0] Camera error:', error);
+                console.error('[v0] ========== CAMERA ERROR ==========');
+                console.error('[v0] Error name:', error.name);
+                console.error('[v0] Error message:', error.message);
+                console.error('[v0] Error stack:', error.stack);
                 
                 let errorMessage = 'Failed to start camera: ' + error.message;
                 if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
@@ -1296,7 +1344,6 @@
             document.body.appendChild(diagDiv);
         }
 
-        // </CHANGE>
         function loadDataset() {
             try {
                 console.log('[CLOUD-LOAD] Attempting to load from cloud...');
