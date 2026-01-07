@@ -424,7 +424,7 @@
                     <div class="sentence-builder">
                         <h3 style="color: #10b981; margin-bottom: 12px;">Sentence Builder</h3>
                         <div class="sentence-display" id="sentence-display">
-                            <span id="current-sentence" style="color: #10b981;">Start signing to build a sentence...</span>
+                            <span id="current-sentence" style="color: #64748b;">Start signing to build a sentence...</span>
                         </div>
                         <div class="sentence-controls">
                             <button class="btn-success" onclick="addSpace()">Add Space</button>
@@ -439,13 +439,13 @@
                 <div class="card">
                     <h2>Statistics</h2>
                     <div class="stats" id="stats">
-                        <div class="stat-box">
-                            <div class="stat-label">Total Gestures</div>
-                            <div class="stat-value" id="total-gestures">0</div>
-                        </div>
-                        <div class="stat-box">
-                            <div class="stat-label">Total Samples</div>
-                            <div class="stat-value" id="total-samples">0</div>
+                        <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+                            <div>Total Samples: <strong>0</strong></div>
+                            <div>Unique Labels: <strong>0</strong></div>
+                            <div>K Value: <strong>3</strong></div>
+                            <button id="diagnostics-btn-stats" onclick="showKNNDiagnostics()" style="padding: 5px 15px; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                                📊 View Dataset Diagnostics
+                            </button>
                         </div>
                     </div>
 
@@ -466,8 +466,8 @@
     <script>
         console.log('[v0] Script loaded, username:', '{{ username }}');
         
-        const username = '{{ username }}';
-        const STORAGE_KEY = `hand_signs_${username}`;
+        const username = "{{ username }}";
+        const STORAGE_KEY = `handsign_dataset_${username}`;
         let trainingData = [];
         let knnClassifier = null;
         let hands = null;
@@ -477,8 +477,10 @@
         let detectionMode = 'knn'; // Default mode
         let lastAiResult = null;
         let currentSentence = [];
+        let currentPrediction = null; // To store current prediction for speakPrediction
         const CANVAS_WIDTH = 640;
         const CANVAS_HEIGHT = 480;
+        let kValue = 3; // Default k value
 
         window.addEventListener('DOMContentLoaded', () => {
             console.log('[v0] Page loaded, initializing...');
@@ -622,6 +624,7 @@
                 
                 processFrame();
                 console.log('[v0] Camera started successfully');
+                updateModeUI(); // Update button visibility based on new mode status
                 
             } catch (error) {
                 console.error('[v0] Camera start error:', error);
@@ -753,7 +756,7 @@
         // Show diagnostics button only when in KNN mode
         function updateModeUI() {
             const diagnosticsBtn = document.getElementById('diagnostics-btn');
-            if (detectionMode === 'knn') {
+            if (detectionMode === 'knn' && trainingData.length > 0) { // Show only if KNN mode and data exists
                 diagnosticsBtn.style.display = 'inline-block';
             } else {
                 diagnosticsBtn.style.display = 'none';
@@ -803,6 +806,7 @@
             const thumbTip = landmarks[4];
             const thumbBase = landmarks[2];
             const wrist = landmarks[0];
+            // Check if thumb is extended away from the palm
             fingers.thumb = Math.abs(thumbTip.x - wrist.x) > Math.abs(thumbBase.x - wrist.x) * 1.3;
 
             // Index finger: tip (8) vs knuckle (6)
@@ -954,41 +958,6 @@
             }
         }
 
-        // Placeholder for KNN and AI mode switching
-        function setMode(mode) {
-            detectionMode = mode;
-            console.log('[v0] Detection mode set to:', mode);
-            
-            const knnBtn = document.getElementById('knn-mode-btn');
-            const aiBtn = document.getElementById('ai-mode-btn');
-            const detectNowBtn = document.getElementById('detect-now-btn');
-            const testAiBtn = document.getElementById('test-ai-btn');
-            
-            if (mode === 'knn') {
-                if (knnBtn) {
-                    knnBtn.style.backgroundColor = '#3b82f6'; // Active color
-                }
-                if (aiBtn) {
-                    aiBtn.style.backgroundColor = '#6b7280'; // Inactive color
-                }
-                if (detectNowBtn) detectNowBtn.style.display = 'none';
-                if (testAiBtn) testAiBtn.style.display = 'none';
-            } else { // AI mode
-                if (knnBtn) {
-                    knnBtn.style.backgroundColor = '#6b7280'; // Inactive color
-                }
-                if (aiBtn) {
-                    aiBtn.style.backgroundColor = '#10b981'; // Active color
-                }
-                // Detect Now button is enabled in startCamera if in AI mode
-                if (detectNowBtn && cameraActive) detectNowBtn.style.display = 'block';
-                if (testAiBtn) testAiBtn.style.display = 'block';
-            }
-            
-            lastAiResult = null;
-            updateModeUI(); // Call to update other UI elements based on mode
-        }
-
 
         function onHandsResults(results) {
             try {
@@ -1077,9 +1046,6 @@
             speechSynthesis.speak(utterance);
         }
 
-        // Removed autoSpeak function as it's not in the updates
-        // function autoSpeak(prediction) { ... }
-
         // Diagnostic view for KNN dataset
         function showKNNDiagnostics() {
             const diagDiv = document.createElement('div');
@@ -1088,10 +1054,10 @@
             let html = '<h2 style="margin-top:0;">KNN Dataset Diagnostics</h2>';
             
             // Check all possible storage keys
-            html += '<h3>All localStorage keys with "hand_signs":</h3><ul>';
+            html += '<h3>All localStorage keys with "handsign_dataset":</h3><ul>';
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key && key.includes('hand_signs')) {
+                if (key && key.includes('handsign_dataset')) {
                     try {
                         const data = JSON.parse(localStorage.getItem(key) || '[]');
                         html += `<li><b>${key}</b>: ${data.length} samples</li>`;
@@ -1148,7 +1114,6 @@
             document.body.appendChild(diagDiv);
         }
 
-        // </CHANGE>
         function loadDataset() {
             try {
                 console.log('[CLOUD-LOAD] Attempting to load from cloud...');
@@ -1201,17 +1166,21 @@
             });
             
             const uniqueLabels = Object.keys(labelCounts);
-            if (uniqueLabels.length === 1) {
+            if (uniqueLabels.length === 1 && trainingData.length > 1) { // Only warn if more than one sample
                 showDatasetWarning(`⚠️ WARNING: Your dataset only contains "${uniqueLabels[0]}" samples!<br>Please go to the Training page and record more hand signs.`);
-            } else if (uniqueLabels.length === 0) {
-                showDatasetWarning('⚠️ WARNING: No training data found!<br>Please go to the Training page to record hand signs.');
-            } else {
+            } else if (uniqueLabels.length === 0 && trainingData.length > 0) { // Case where data exists but has no labels
+                showDatasetWarning('⚠️ WARNING: Training data found, but no valid labels!<br>Please go to the Training page and ensure labels are assigned.');
+            } else if (trainingData.length === 0) {
+                showDatasetWarning('⚠️ No training data found!<br>Please go to the Training page to record hand signs.');
+            }
+            else {
                 const summary = uniqueLabels.map(label => `${label}: ${labelCounts[label]}`).join(', ');
                 showDatasetInfo(`✅ Dataset loaded: ${summary}`);
             }
             
             updateStats();
             updateDatasetList();
+            updateModeUI(); // Update mode UI after dataset is loaded
         }
 
         function showDatasetWarning(message) {
@@ -1238,14 +1207,15 @@
             }
             warningDiv.innerHTML = message;
             warningDiv.style.background = '#ef4444';
+            warningDiv.style.display = 'block'; // Ensure it's visible
         }
 
         function showDatasetInfo(message) {
-            let warningDiv = document.getElementById('dataset-warning');
-            if (!warningDiv) {
-                warningDiv = document.createElement('div');
-                warningDiv.id = 'dataset-warning';
-                warningDiv.style.cssText = `
+            let infoDiv = document.getElementById('dataset-warning'); // Re-use the ID for simplicity
+            if (!infoDiv) {
+                infoDiv = document.createElement('div');
+                infoDiv.id = 'dataset-warning';
+                infoDiv.style.cssText = `
                     position: fixed;
                     top: 20px;
                     left: 50%;
@@ -1260,16 +1230,19 @@
                     max-width: 600px;
                     text-align: center;
                 `;
-                document.body.appendChild(warningDiv);
+                document.body.appendChild(infoDiv);
             }
-            warningDiv.innerHTML = message;
-            warningDiv.style.background = '#10b981';
+            infoDiv.innerHTML = message;
+            infoDiv.style.background = '#10b981';
+            infoDiv.style.display = 'block'; // Ensure it's visible
             
             // Auto-hide after 5 seconds
             setTimeout(() => {
-                warningDiv.style.opacity = '0';
-                warningDiv.style.transition = 'opacity 0.5s';
-                setTimeout(() => warningDiv.remove(), 500);
+                infoDiv.style.opacity = '0';
+                infoDiv.style.transition = 'opacity 0.5s';
+                setTimeout(() => {
+                    if (infoDiv) infoDiv.remove();
+                }, 500);
             }, 5000);
         }
 
@@ -1430,8 +1403,7 @@
             return imageData;
         }
 
-        // KNN specific logic from original code
-        let kValue = 3; // Default k value
+        // KNN specific logic
         const HAND_CONNECTIONS = [
             [0, 1], [1, 2], [2, 3], [3, 4],
             [0, 5], [5, 6], [6, 7], [7, 8],
@@ -1447,16 +1419,23 @@
             landmarks.forEach(lm => {
                 coords.push([lm.x, lm.y, lm.z]);
             });
-            const wrist = coords[0];
+            const wrist = coords[0]; // Use wrist (landmark 0) as the origin
+            // Normalize coordinates relative to the wrist
             coords = coords.map(c => [c[0] - wrist[0], c[1] - wrist[1], c[2] - wrist[2]]);
+            
+            // Find the maximum distance from the wrist to any landmark
             let maxDist = 0;
             coords.forEach(c => {
                 const dist = Math.sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
                 if (dist > maxDist) maxDist = dist;
             });
+            
+            // Scale all coordinates by the maximum distance
             if (maxDist > 0) {
                 coords = coords.map(c => [c[0] / maxDist, c[1] / maxDist, c[2] / maxDist]);
             }
+            
+            // Flatten the array of coordinate triplets into a single array of numbers
             const flat = [];
             coords.forEach(c => flat.push(...c));
             return flat;
