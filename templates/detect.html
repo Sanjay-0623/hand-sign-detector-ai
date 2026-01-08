@@ -572,20 +572,15 @@
                 return;
             }
             
-            if (!hands) {
-                console.log('[v0] MediaPipe not ready, initializing now...');
-                await initializeMediaPipe();
-                
-                if (!hands) {
-                    alert('MediaPipe failed to load. Please refresh the page and try again.');
-                    return;
-                }
-            }
-            
             try {
                 console.log('[v0] Requesting camera access...');
                 
                 const video = document.getElementById('video');
+                if (!video) {
+                    console.error('[v0] Video element not found');
+                    alert('Video element not found. Please refresh the page.');
+                    return;
+                }
                 
                 console.log('[v0] Using getUserMedia for camera access...');
                 const stream = await navigator.mediaDevices.getUserMedia({
@@ -596,8 +591,9 @@
                     }
                 });
                 
-                console.log('[v0] Camera stream obtained');
+                console.log('[v0] Camera stream obtained successfully');
                 video.srcObject = stream;
+                console.log('[v0] Video srcObject assigned');
                 
                 await new Promise((resolve, reject) => {
                     const timeout = setTimeout(() => {
@@ -629,6 +625,15 @@
                     statusBadge.classList.remove('inactive');
                 }
                 
+                if (!hands) {
+                    console.log('[v0] MediaPipe not ready, initializing in background...');
+                    initializeMediaPipe().then(() => {
+                        console.log('[v0] MediaPipe initialized, starting detection');
+                    }).catch(err => {
+                        console.error('[v0] MediaPipe init error (camera still running):', err);
+                    });
+                }
+                
                 const processFrame = async () => {
                     if (!cameraActive) {
                         console.log('[v0] Frame processing stopped');
@@ -637,7 +642,9 @@
                     
                     if (video.readyState === video.HAVE_ENOUGH_DATA) {
                         try {
-                            await hands.send({ image: video });
+                            if (hands) {
+                                await hands.send({ image: video });
+                            }
                         } catch (err) {
                             console.error('[v0] Frame processing error:', err);
                         }
