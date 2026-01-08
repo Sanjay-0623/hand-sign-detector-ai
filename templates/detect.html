@@ -103,7 +103,8 @@
         video, canvas {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            /* Changed from 'cover' to 'contain' to prevent camera zoom when hand appears */
+            object-fit: contain;
             display: block;
         }
 
@@ -464,10 +465,27 @@
     <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
     <script>
-        console.log('[v0] Script loaded, username:', '{{ username }}');
-        
-        const username = "{{ username }}";
+        console.log('[v0] Detection page initializing...');
+
+        window.addEventListener('keydown', function(e) {
+            if (e.code === 'Space' || e.key === ' ') {
+                e.preventDefault(); // Prevent page scrolling
+                
+                // If camera is active, trigger manual detection or capture
+                if (cameraActive && detectionMode === 'ai') {
+                    console.log('[v0] Space pressed - triggering AI detection');
+                    detectNow();
+                } else if (cameraActive) {
+                    console.log('[v0] Space pressed during active camera detection');
+                    // Space key pressed during active detection - could add capture functionality here
+                }
+            }
+        });
+
+        const CANVAS_WIDTH = 640;
+        const CANVAS_HEIGHT = 480;
         const STORAGE_KEY = `handsign_dataset_${username}`;
+        
         let trainingData = [];
         let knnClassifier = null;
         let hands = null;
@@ -478,9 +496,15 @@
         let lastAiResult = null;
         let currentSentence = [];
         let currentPrediction = null; // To store current prediction for speakPrediction
-        const CANVAS_WIDTH = 640;
-        const CANVAS_HEIGHT = 480;
         let kValue = 3; // Default k value
+
+        let lastDetectedGesture = null;  // Last gesture that was accepted
+        let currentGesture = null;        // Current gesture being evaluated
+        let consecutiveFrames = 0;        // How many consecutive frames detected the same gesture
+        let lastGestureTime = 0;          // Timestamp of last accepted gesture
+        const STABILITY_THRESHOLD = 10;   // Require 10 consecutive frames (~333ms at 30fps)
+        const COOLDOWN_MS = 1500;         // 1.5 second cooldown between gestures
+        // </CHANGE>
 
         window.addEventListener('DOMContentLoaded', () => {
             console.log('[v0] Page loaded, initializing...');
@@ -499,9 +523,15 @@
         });
 
         async function initializeMediaPipe() {
+            console.log('[v0] Initializing MediaPipe...');
+            
+            const canvas = document.getElementById('canvas');
+            canvas.width = CANVAS_WIDTH;
+            canvas.height = CANVAS_HEIGHT;
+            canvasCtx = canvas.getContext('2d');
+            console.log('[v0] Canvas ready with fixed size:', CANVAS_WIDTH, 'x', CANVAS_HEIGHT);
+
             try {
-                console.log('[v0] Starting MediaPipe initialization...');
-                
                 let attempts = 0;
                 while (typeof Hands === 'undefined' && attempts < 50) {
                     console.log('[v0] Waiting for MediaPipe Hands... attempt', attempts + 1);
@@ -555,12 +585,6 @@
             try {
                 console.log('[v0] Requesting camera access...');
                 
-                const canvas = document.getElementById('canvas');
-                canvas.width = CANVAS_WIDTH;
-                canvas.height = CANVAS_HEIGHT;
-                canvasCtx = canvas.getContext('2d');
-                console.log('[v0] Canvas ready');
-
                 const video = document.getElementById('video');
                 
                 console.log('[v0] Using getUserMedia for camera access...');
@@ -936,7 +960,9 @@
                     displayPrediction(gesture);
                     
                     if (gesture.confidence > 0.5) {
-                        addToSentence(gesture.label);
+                        checkGestureStability(gesture.label, gesture.confidence);
+                    } else {
+                        resetStabilityTracking(); // Reset if confidence is too low
                     }
                     
                 } else {
@@ -944,6 +970,7 @@
                     const gesture = { label: 'No hand detected - show your hand to camera', confidence: 0 };
                     lastAiResult = gesture;
                     displayPrediction(gesture);
+                    resetStabilityTracking(); // Reset when no hand is detected
                 }
                 
             } catch (error) {
@@ -952,6 +979,7 @@
                     label: `Error: ${error.message}`, 
                     confidence: 0 
                 });
+                resetStabilityTracking(); // Reset on error
             } finally {
                 btn.textContent = '🔍 Detect Now (Free)';
                 btn.disabled = false; // Re-enable after analysis
@@ -963,10 +991,9 @@
             try {
                 const canvas = document.getElementById('canvas');
                 const video = document.getElementById('video');
-                canvasCtx.save();
                 canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
                 canvasCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
+                
                 if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                     const landmarks = results.multiHandLandmarks[0];
                     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#3b82f6', lineWidth: 2 });
@@ -978,23 +1005,33 @@
                             const prediction = predict(normalized);
                             displayPrediction(prediction);
                             currentPrediction = prediction;
+                            
                             if (prediction) {
-                                addToSentence(prediction.label);
+                                checkGestureStability(prediction.label, prediction.confidence);
                             }
+                            // </CHANGE>
                         } else {
                             displayPrediction(null); // No valid landmarks for KNN
+                            resetStabilityTracking();
+                            // </CHANGE>
                         }
                     } else { // AI Mode (Free gesture detection)
                         const gesture = detectGestureFromLandmarks(landmarks);
                         lastAiResult = gesture;
                         displayPrediction(gesture);
+                        
                         if (gesture.confidence > 0.5) {
-                            addToSentence(gesture.label);
+                            checkGestureStability(gesture.label, gesture.confidence);
+                        } else {
+                            resetStabilityTracking(); // Reset if confidence is too low
                         }
+                        // </CHANGE>
                     }
                 } else {
                     displayPrediction(null);
                     currentPrediction = null;
+                    resetStabilityTracking();
+                    // </CHANGE>
                 }
                 canvasCtx.restore();
             } catch (error) {
@@ -1002,6 +1039,50 @@
             }
         }
 
+        function checkGestureStability(gestureName, confidence) {
+            // Ignore if confidence is too low
+            if (!gestureName || confidence < 0.5) {
+                resetStabilityTracking();
+                return;
+            }
+
+            const now = Date.now();
+            
+            // Check if we're in cooldown period
+            if (now - lastGestureTime < COOLDOWN_MS) {
+                // Still in cooldown, don't record anything
+                return;
+            }
+
+            // Check if this is the same gesture as we're currently tracking
+            if (currentGesture === gestureName) {
+                consecutiveFrames++;
+                
+                // Check if we've reached stability threshold
+                if (consecutiveFrames >= STABILITY_THRESHOLD) {
+                    // Only add if it's different from the last accepted gesture
+                    if (lastDetectedGesture !== gestureName) {
+                        console.log(`[v0] Stable gesture detected: ${gestureName} (${consecutiveFrames} frames)`);
+                        addToSentence(gestureName);
+                        lastDetectedGesture = gestureName;
+                        lastGestureTime = now;
+                    }
+                    // Reset tracking after successful detection
+                    resetStabilityTracking();
+                }
+            } else {
+                // Different gesture detected, restart tracking
+                currentGesture = gestureName;
+                consecutiveFrames = 1;
+            }
+        }
+
+        function resetStabilityTracking() {
+            currentGesture = null;
+            consecutiveFrames = 0;
+        }
+        // </CHANGE>
+        
         function displayPrediction(prediction) {
             const box = document.getElementById('prediction-box');
             if (!box) return;
@@ -1024,7 +1105,7 @@
                 
                 const speakBtn = document.getElementById('speak-btn');
                 if (speakBtn) {
-                    speakBtn.style.display = (isError || prediction.label === 'none') ? 'none' : 'block';
+                    speakBtn.style.display = (isError || prediction.label === 'none' || prediction.label === 'Unknown Gesture') ? 'none' : 'block';
                 }
             } else {
                 box.innerHTML = `
@@ -1324,7 +1405,7 @@
             if (gestureLabelsToIgnore.includes(detectedChar.toLowerCase())) {
                 return;
             }
-
+            
             let char = detectedChar.toLowerCase().trim();
             currentSentence.push(char);
             updateSentenceDisplay();
